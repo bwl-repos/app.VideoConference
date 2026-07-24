@@ -91,8 +91,11 @@ export default function VideoRoom({ roomId, guestToken, speakerInviteId, display
   // trocar o token no <LiveKitRoom> derruba e refaz a conexão — o aluno "caía" sozinho
   // segundos após entrar. O nome exibido não precisa de token novo.
   const tokenIssuedFor = useRef<string | null>(null);
+  const [tokenAttempt, setTokenAttempt] = useState(0);   // incrementa para tentar de novo
   useEffect(() => {
-    const key = `${roomId}|${guestToken ?? ""}|${speakerInviteId ?? ""}|${presetToken ?? ""}`;
+    // Nome/e-mail entram na chave: se chegarem depois (fluxo assíncrono/LTI), o token é
+    // reemitido UMA vez com os dados certos — sem reemitir a cada render, que era o bug.
+    const key = `${roomId}|${guestToken ?? ""}|${speakerInviteId ?? ""}|${presetToken ?? ""}|${displayName}|${learnerEmail ?? ""}`;
     if (tokenIssuedFor.current === key) return;
     tokenIssuedFor.current = key;
     if (presetToken) {  // iframe embed: token already minted by the client backend
@@ -102,15 +105,29 @@ export default function VideoRoom({ roomId, guestToken, speakerInviteId, display
     sdk.token
       .issue({ room_id: roomId, guest_token: guestToken, speaker_invite_id: speakerInviteId, display_name: displayName, email: learnerEmail })
       .then((r) => { setToken(r.token); setLivekitUrl(r.livekit_url); setIdentity(r.identity); })
-      .catch((e) => { tokenIssuedFor.current = null; console.error(e); });   // permite nova tentativa
-  }, [roomId, guestToken, speakerInviteId, displayName, presetToken, presetLivekitUrl, presetIdentity, learnerEmail]);
+      .catch((e) => {
+        // Falhou (rede/500): destrava e reagenda. Sem isto o aluno ficava preso em
+        // "Conectando…" para sempre, sem retry nem aviso.
+        console.error(e);
+        tokenIssuedFor.current = null;
+        setTimeout(() => setTokenAttempt((n) => n + 1), 2000);
+      });
+  }, [roomId, guestToken, speakerInviteId, displayName, presetToken, presetLivekitUrl, presetIdentity, learnerEmail, tokenAttempt]);
 
   useEffect(() => {
-    return sdk.subscribe(roomId, (event) => {
-      if (event === "room-ended") setEnded(true);
-      if (event === "force-kick") onLeft?.();
+    return sdk.subscribe(roomId, (event, payload) => {
+      if (event === "room-ended") { setEnded(true); return; }
+      // `force-kick` é transmitido para a SALA INTEIRA com o alvo em payload.user_id.
+      // Sem filtrar, expulsar UM aluno derrubava TODOS (inclusive o próprio anfitrião).
+      if (event === "force-kick") {
+        if (isStaff) return;                                    // host nunca se auto-expulsa
+        if (payload?.user_id && payload.user_id !== identity) return;   // não é para mim
+        leftRef.current = true;                                 // saída definitiva: não reconecta
+        setLeft(true);
+        onLeft?.();
+      }
     });
-  }, [roomId]);
+  }, [roomId, identity, isStaff, onLeft]);
 
   /* ---------------- Grupos (breakout) ---------------- */
   const [breakout, setBreakout] = useState<BreakoutMedia | null>(null);
@@ -202,6 +219,7 @@ export default function VideoRoom({ roomId, guestToken, speakerInviteId, display
   // callback e reentravam no grupo no meio da aula, gerando novas quedas.
   const [boResolved, setBoResolved] = useState(false);
   const resolvedRef = useRef(false);
+  const resolveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (isStaff) { setBoResolved(true); return; }   // host entra sempre na principal
     if (resolvedRef.current) return;
@@ -211,16 +229,33 @@ export default function VideoRoom({ roomId, guestToken, speakerInviteId, display
     if (!identity) { setBoResolved(true); return; }
     resolvedRef.current = true;
     let done = false;
-    const finish = () => { if (!done) { done = true; setBoResolved(true); } };
-    // Nunca deixa a entrada travada por causa da consulta de grupos.
-    const timer = setTimeout(finish, 5000);
+    const finish = () => {
+      if (done) return;
+      done = true;
+      if (resolveTimerRef.current) { clearTimeout(resolveTimerRef.current); resolveTimerRef.current = null; }
+      setBoResolved(true);
+    };
+    // Rede de segurança: a entrada nunca fica travada pela consulta de grupos. Fica num
+    // ref (não no cleanup do efeito) — senão uma re-execução do efeito matava o timer e,
+    // com `resolvedRef` já travado, ninguém reagendava.
+    resolveTimerRef.current = setTimeout(finish, 5000);
     (async () => {
       try { await rejoinMyGroup(); } catch { /* segue na principal */ }
-      clearTimeout(timer);
       finish();
     })();
-    return () => clearTimeout(timer);
   }, [identity, isStaff, token, rejoinMyGroup]);
+
+  // Reconcilia os grupos quando o WS volta de uma queda, e quando o host REMANEJA
+  // alguém com os grupos já abertos (o backend emite `breakout-state` nesse caso).
+  // Fica separado do handler de breakout-open/close porque precisa de `rejoinMyGroup`,
+  // definido acima — e a resolução inicial roda uma vez só, então sem isto o aluno que
+  // perdesse o evento durante um blip nunca entraria no grupo.
+  useEffect(() => {
+    if (isStaff || !identity) return;
+    return sdk.subscribe(roomId, (event) => {
+      if (event === "__reconnected" || event === "breakout-state") rejoinMyGroup();
+    });
+  }, [roomId, identity, isStaff, rejoinMyGroup]);
 
   // Auto-some o aviso após alguns segundos.
   useEffect(() => {
@@ -300,6 +335,7 @@ export default function VideoRoom({ roomId, guestToken, speakerInviteId, display
         data-lk-theme="default"
         className="vr-root"
         onDisconnected={handleDisconnected}
+        onConnected={() => { swapAtRef.current = 0; }}
       >
         <RoomShell roomId={roomId} roomTitle={roomTitle} isStaff={!!isStaff} inviteUrl={inviteUrl} senderName={displayName} identity={identity ?? undefined} breakout={boCtx} onLeaveRoom={requestLeave} />
         {identity && <RemoteControlEnforcer roomId={roomId} identity={identity} isStaff={!!isStaff} />}
