@@ -793,6 +793,34 @@
   background: #22c55e; color: #fff; font-size: 12px; font-weight: 800;
   display: grid; place-items: center; box-shadow: 0 2px 6px rgba(0,0,0,.4);
 }
+/* Indicador de qualidade de conexão: 3 barrinhas no canto inferior direito do frame.
+   Fica sobre o vídeo, sem capturar cliques. As barras acesas indicam o nível; as
+   apagadas ficam esmaecidas, para o usuário perceber que há uma escala. */
+.vr-sig {
+  position: absolute; right: 6px; bottom: 6px; z-index: 3; pointer-events: none;
+  display: flex; align-items: flex-end; gap: 2px; height: 14px;
+  padding: 3px 4px; border-radius: 5px; background: rgba(0, 0, 0, .45);
+}
+.vr-sig i { width: 3px; border-radius: 1px; background: currentColor; opacity: .3; }
+.vr-sig i:nth-child(1) { height: 5px; }
+.vr-sig i:nth-child(2) { height: 8px; }
+.vr-sig i:nth-child(3) { height: 11px; }
+/* Cor pelo nível + quantas barras acendem. */
+.vr-sig[data-nivel="3"] { color: #22c55e; }
+.vr-sig[data-nivel="2"] { color: #f59e0b; }
+.vr-sig[data-nivel="1"] { color: #ef4444; }
+.vr-sig[data-nivel="0"] { color: #ef4444; }
+.vr-sig[data-nivel="3"] i { opacity: 1; }
+.vr-sig[data-nivel="2"] i:nth-child(-n + 2) { opacity: 1; }
+.vr-sig[data-nivel="1"] i:nth-child(1) { opacity: 1; }
+/* Conexão perdida: as barras piscam para chamar atenção. */
+.vr-sig[data-nivel="0"] i:nth-child(1) { opacity: 1; animation: vrSigPisca 1s steps(1) infinite; }
+@keyframes vrSigPisca { 50% { opacity: .2; } }
+@media (prefers-reduced-motion: reduce) { .vr-sig[data-nivel="0"] i:nth-child(1) { animation: none; } }
+
+/* Wrapper do tile na grade comum: âncora para o indicador ficar dentro do frame. */
+.vr-tile-sig { position: relative; width: 100%; height: 100%; }
+
 .vr-pbl-empty { grid-column: 1 / -1; display: grid; place-items: center; color: var(--vr-text-dim); font-size: 13px; padding: 40px 0; }
 @media (max-width: 768px) {
   .vr-stage[data-pbl="1"] { flex-direction: column; }

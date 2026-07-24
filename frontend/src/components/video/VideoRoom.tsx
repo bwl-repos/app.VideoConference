@@ -2,8 +2,9 @@ import { useEffect, useMemo, useRef, useState, useCallback, lazy, Suspense, type
 import {
   LiveKitRoom, RoomAudioRenderer, GridLayout, ParticipantTile,
   useTracks, useParticipants, useTrackToggle, useRoomContext, useLocalParticipant,
+  useMaybeTrackRefContext,
 } from "@livekit/components-react";
-import { Track, RoomEvent, Room, ConnectionState } from "livekit-client";
+import { Track, RoomEvent, Room, ConnectionState, ParticipantEvent, ConnectionQuality } from "livekit-client";
 import { QRCodeSVG } from "qrcode.react";
 import "@livekit/components-styles";
 import "../../styles/room.css";
@@ -1564,7 +1565,7 @@ function VideoGrid() {
   const cams = tracks.filter((t) => t.source === Track.Source.Camera && !isBroadcast(t.participant.identity) && !isEgress(t.participant.identity));
   return (
     <GridLayout tracks={cams} style={{ height: "100%" }}>
-      <ParticipantTile />
+      <TileComSinal />
     </GridLayout>
   );
 }
@@ -2150,6 +2151,48 @@ function useFittedCols(count: number) {
 /** Grade dos ALUNOS (área principal, à direita) com borda de status:
  *  🟢 dentro do pacote · 🔴 fora · badge ✓ = registrou presença com o class-code.
  *  O facilitador e o código ficam no header do painel (PblPanelHeader). */
+/** Qualidade de conexão do participante, reagindo ao evento do LiveKit.
+ *  Usa a propriedade `connectionQuality` + ParticipantEvent — API estável do
+ *  livekit-client (não depende de componente do components-react). */
+function useConnQuality(participant?: { connectionQuality?: ConnectionQuality; on: Function; off: Function }) {
+  const [q, setQ] = useState<ConnectionQuality>(
+    (participant?.connectionQuality as ConnectionQuality) ?? ConnectionQuality.Unknown);
+  useEffect(() => {
+    if (!participant) return;
+    const update = () => setQ((participant.connectionQuality as ConnectionQuality) ?? ConnectionQuality.Unknown);
+    update();
+    participant.on(ParticipantEvent.ConnectionQualityChanged, update);
+    return () => { participant.off(ParticipantEvent.ConnectionQualityChanged, update); };
+  }, [participant]);
+  return q;
+}
+
+/** Barrinhas de sinal (3 níveis) no canto do frame. Verde = boa, âmbar = média,
+ *  vermelho = ruim/perdida. Some quando o LiveKit ainda não mediu (Unknown). */
+function SignalBars({ participant }: { participant?: any }) {
+  const q = useConnQuality(participant);
+  if (q === ConnectionQuality.Unknown) return null;
+  const nivel = q === ConnectionQuality.Excellent ? 3 : q === ConnectionQuality.Good ? 2 : q === ConnectionQuality.Poor ? 1 : 0;
+  const rotulo = nivel === 3 ? "Conexão boa" : nivel === 2 ? "Conexão média" : nivel === 1 ? "Conexão ruim" : "Sem conexão";
+  return (
+    <span className="vr-sig" data-nivel={nivel} title={rotulo} aria-label={rotulo}>
+      <i /><i /><i />
+    </span>
+  );
+}
+
+/** Tile da grade comum + barrinhas. O GridLayout clona este filho para cada track e
+ *  passa o track por contexto — daí lermos o participante de lá. */
+function TileComSinal() {
+  const ref = useMaybeTrackRefContext();
+  return (
+    <div className="vr-tile-sig">
+      <ParticipantTile />
+      <SignalBars participant={ref?.participant} />
+    </div>
+  );
+}
+
 function OpenPblStudentsGrid({ roster, localIsStaff, localIdentity, strip, sideScreen }: { roster: any | null; localIsStaff: boolean; localIdentity?: string; strip?: boolean; sideScreen?: boolean }) {
   const tracks = useTracks(
     [{ source: Track.Source.Camera, withPlaceholder: true }, { source: Track.Source.ScreenShare, withPlaceholder: false }],
@@ -2185,6 +2228,7 @@ function OpenPblStudentsGrid({ roster, localIsStaff, localIdentity, strip, sideS
         return (
           <div key={`${t.participant.identity}-st`} className="vr-pbl-tile" data-pkg={st?.in_package ? "in" : "out"}>
             <ParticipantTile trackRef={t} />
+            <SignalBars participant={t.participant} />
             {st?.registered && <span className="vr-pbl-reg" title="Registrado na sessão (class-code inserido)">✓</span>}
           </div>
         );
@@ -2234,6 +2278,7 @@ function PblPanelHeader({ roster, localIsStaff, localIdentity, pinned }: { roste
     <div className="vr-pbl-head" data-wide="1">
       <div className="vr-pbl-head-cam">
         <ParticipantTile trackRef={hostTrack} />
+        <SignalBars participant={hostTrack.participant} />
         {firstName && <span className="vr-pbl-head-name">{firstName}</span>}
       </div>
     </div>
