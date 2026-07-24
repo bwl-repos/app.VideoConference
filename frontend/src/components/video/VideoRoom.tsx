@@ -86,7 +86,15 @@ export default function VideoRoom({ roomId, guestToken, speakerInviteId, display
   const [camOn, setCamOn] = useState(true);
   const [micOn, setMicOn] = useState(true);
 
+  // Emite o token UMA vez por sala. Antes o efeito reagia a `displayName`/`learnerEmail`:
+  // qualquer mudança (mesmo cosmética, vinda de um re-render do pai) reemitia o token, e
+  // trocar o token no <LiveKitRoom> derruba e refaz a conexão — o aluno "caía" sozinho
+  // segundos após entrar. O nome exibido não precisa de token novo.
+  const tokenIssuedFor = useRef<string | null>(null);
   useEffect(() => {
+    const key = `${roomId}|${guestToken ?? ""}|${speakerInviteId ?? ""}|${presetToken ?? ""}`;
+    if (tokenIssuedFor.current === key) return;
+    tokenIssuedFor.current = key;
     if (presetToken) {  // iframe embed: token already minted by the client backend
       setToken(presetToken); setLivekitUrl(presetLivekitUrl ?? null); setIdentity(presetIdentity ?? null);
       return;
@@ -94,8 +102,8 @@ export default function VideoRoom({ roomId, guestToken, speakerInviteId, display
     sdk.token
       .issue({ room_id: roomId, guest_token: guestToken, speaker_invite_id: speakerInviteId, display_name: displayName, email: learnerEmail })
       .then((r) => { setToken(r.token); setLivekitUrl(r.livekit_url); setIdentity(r.identity); })
-      .catch((e) => console.error(e));
-  }, [roomId, guestToken, speakerInviteId, displayName, presetToken, learnerEmail]);
+      .catch((e) => { tokenIssuedFor.current = null; console.error(e); });   // permite nova tentativa
+  }, [roomId, guestToken, speakerInviteId, displayName, presetToken, presetLivekitUrl, presetIdentity, learnerEmail]);
 
   useEffect(() => {
     return sdk.subscribe(roomId, (event) => {
@@ -108,9 +116,11 @@ export default function VideoRoom({ roomId, guestToken, speakerInviteId, display
   const [breakout, setBreakout] = useState<BreakoutMedia | null>(null);
   const [boMessage, setBoMessage] = useState<string | null>(null);
   const [boChoices, setBoChoices] = useState<BreakoutGroup[] | null>(null);
-  // A troca de sala remonta o LiveKitRoom (dispara onDisconnected); esse ref evita
-  // que o swap seja confundido com o usuário saindo de verdade.
-  const swapRef = useRef(false);
+  // Trocar de sala (principal ↔ grupo) remonta o LiveKitRoom e dispara onDisconnected.
+  // Guardamos o INSTANTE do swap em vez de um booleano: uma transição pode gerar MAIS
+  // de uma desconexão (a sala antiga e uma tentativa falha da nova), e o booleano era
+  // consumido na primeira — a segunda caía como "saiu da sala" e ejetava o aluno.
+  const swapAtRef = useRef(0);
   // Saída intencional (botão "Sair"): já tratada por requestLeave, então o
   // onDisconnected que vem em seguida não deve disparar onLeft de novo.
   const leftRef = useRef(false);
@@ -126,17 +136,18 @@ export default function VideoRoom({ roomId, guestToken, speakerInviteId, display
     if (!identity) return;
     try {
       const t = await sdk.breakouts.token(roomId, group.id, identity, displayName);
-      swapRef.current = true;
+      swapAtRef.current = Date.now();
       setBoSeq((n) => n + 1);
       setBreakout({ token: t.token, url: t.livekit_url, groupId: group.id, groupName: t.group_name, endsAt });
       setBoChoices(null);
     } catch (e) { console.error("breakout token", e); }
   }, [identity, roomId, displayName]);
 
-  const leaveBreakout = useCallback(() => { swapRef.current = true; setBreakout(null); setBoChoices(null); }, []);
+  const leaveBreakout = useCallback(() => { swapAtRef.current = Date.now(); setBreakout(null); setBoChoices(null); }, []);
 
   const handleDisconnected = useCallback(() => {
-    if (swapRef.current) { swapRef.current = false; return; } // foi troca de grupo, não saída
+    // Dentro da janela do swap, QUALQUER desconexão é da troca de sala — não ejeta.
+    if (Date.now() - swapAtRef.current < SWAP_WINDOW_MS) return;
     if (leftRef.current) return;                              // saída intencional já tratada
     setLeft(true);    // mostra a tela de saída (essencial no embed, onde não há onLeft)
     onLeft?.();
@@ -171,8 +182,8 @@ export default function VideoRoom({ roomId, guestToken, speakerInviteId, display
   }, [roomId, identity, isStaff, enterBreakout, leaveBreakout]);
 
   // Volta para o grupo ao qual a pessoa está atribuída (a atribuição é persistida e o
-  // identity do convidado é estável por e-mail). Usado ao entrar na sala E ao reentrar
-  // depois de cair — neste segundo caso o grupo era simplesmente descartado.
+  // identity do convidado é estável por e-mail). Usado na resolução inicial e no
+  // "Entrar novamente" da tela de saída.
   const rejoinMyGroup = useCallback(async () => {
     if (!identity || isStaff) return;
     try {
@@ -184,8 +195,32 @@ export default function VideoRoom({ roomId, guestToken, speakerInviteId, display
     } catch { /* sem estado de grupos: segue na sala principal */ }
   }, [identity, isStaff, roomId, enterBreakout]);
 
-  // Entrou numa sala com grupos JÁ abertos → vai direto para o seu grupo.
-  useEffect(() => { rejoinMyGroup(); }, [rejoinMyGroup]);
+  // Resolve a sala-destino ANTES da primeira conexão. Antes conectávamos na principal e
+  // só depois descobríamos o grupo — o aluno era movido ~5s após entrar, e cada
+  // movimentação derruba e refaz a sessão de mídia (parecia "caiu sozinho").
+  // Roda UMA vez (resolvedRef): sem a trava, mudanças de `displayName` recriavam o
+  // callback e reentravam no grupo no meio da aula, gerando novas quedas.
+  const [boResolved, setBoResolved] = useState(false);
+  const resolvedRef = useRef(false);
+  useEffect(() => {
+    if (isStaff) { setBoResolved(true); return; }   // host entra sempre na principal
+    if (resolvedRef.current) return;
+    if (!token) return;                             // sem token ainda: a tela "Conectando…" cobre
+    // Embed pode passar token sem identity — aí não há grupo a resolver; libera a entrada
+    // em vez de travar em "Entrando…".
+    if (!identity) { setBoResolved(true); return; }
+    resolvedRef.current = true;
+    let done = false;
+    const finish = () => { if (!done) { done = true; setBoResolved(true); } };
+    // Nunca deixa a entrada travada por causa da consulta de grupos.
+    const timer = setTimeout(finish, 5000);
+    (async () => {
+      try { await rejoinMyGroup(); } catch { /* segue na principal */ }
+      clearTimeout(timer);
+      finish();
+    })();
+    return () => clearTimeout(timer);
+  }, [identity, isStaff, token, rejoinMyGroup]);
 
   // Auto-some o aviso após alguns segundos.
   useEffect(() => {
@@ -238,6 +273,10 @@ export default function VideoRoom({ roomId, guestToken, speakerInviteId, display
       />
     );
   }
+
+  // Só conecta depois de saber a sala-destino (principal ou grupo). Evita entrar na
+  // principal e ser movido em seguida — a troca derruba a sessão de mídia.
+  if (!boResolved) return <div className="vr-root"><div className="vr-center">Entrando…</div></div>;
 
   const boCtx: BreakoutCtx = {
     active: breakout ? { groupId: breakout.groupId, groupName: breakout.groupName, endsAt: breakout.endsAt } : null,
@@ -398,6 +437,9 @@ function BreakoutHostBar({ roomId, active, message, onEnter, onLeave }: {
  *  Sufixo de identidade das conexões de fan-out do host. São participantes só-áudio
  *  (sem câmera) que NÃO devem aparecer nas grades nem na contagem de participantes. */
 const BROADCAST_SUFFIX = "__bc";
+// Desconexões dentro desta janela após uma troca de sala pertencem à transição
+// (a sala antiga fecha, a nova conecta) — nunca são "o usuário saiu".
+const SWAP_WINDOW_MS = 10000;
 const isBroadcast = (id: string) => id.endsWith(BROADCAST_SUFFIX);
 // Participante do egress (gravador headless) — não é uma pessoa, nunca vira tile.
 const isEgress = (id: string) => id.startsWith("EG_");
