@@ -408,19 +408,33 @@ async def scorm_progress(room_id: str, user: CurrentUser = Depends(get_current_u
         "ORDER BY lower(email), joined_at DESC", room_id, room["owner_id"])
     base = settings.scorm_lrs_url.rstrip("/")
 
-    async def one(email: str, name: str | None) -> dict:
+    async def fetch_events_by_student(emails_list: list[str]) -> tuple[dict, bool]:
+        """Eventos de TODOS os alunos numa ÚNICA chamada ao LRS.
+
+        Antes era 1 request por aluno disparado em paralelo (asyncio.gather): numa aula
+        grande abria N conexões simultâneas no Scorm, esgotava o pool e derrubava o
+        serviço (incidente 2026-07-24). Retorna (mapa email->eventos, ok); ok=False marca
+        todos como "erro" — mesmo comportamento do try/except por aluno de antes.
+        """
+        if not emails_list:
+            return {}, True
+        try:
+            async with httpx.AsyncClient(timeout=20) as c:
+                resp = await c.get(f"{base}/interaction-events/by-students",
+                                   params={"studentEmails": ",".join(emails_list),
+                                           "limitPerStudent": 300})
+            return ((resp.json() or {}).get("data") or {}), True
+        except Exception:
+            return {}, False
+
+    def one(email: str, name: str | None, evs, lrs_ok: bool) -> dict:
         out = {"email": email, "name": name or email, "status": "nao-abriu",
                "done_lessons": [], "lessons_done": 0, "completed": False,
                "tipo": None, "last_activity": None, "events": 0, "_lesson_first": {}}
-        try:
-            async with httpx.AsyncClient(timeout=10) as c:
-                resp = await c.get(f"{base}/interaction-events",
-                                   params={"studentEmail": email, "limit": 300})
-            evs = (resp.json() or {}).get("data") or []
-        except Exception:
+        if not lrs_ok:
             out["status"] = "erro"
             return out
-        sess = [e for e in evs if (e.get("createdAt") or "") >= since_iso]
+        sess = [e for e in (evs or []) if (e.get("createdAt") or "") >= since_iso]
         if not sess:
             return out
         sess.sort(key=lambda x: x.get("createdAt") or "", reverse=True)
@@ -459,8 +473,9 @@ async def scorm_progress(room_id: str, user: CurrentUser = Depends(get_current_u
             out["status"] = "ativo"
         return out
 
-    students = await _asyncio.gather(*[one(p["email"], p["display_name"]) for p in parts]) if parts else []
-    students = list(students)
+    _by_student, _lrs_ok = await fetch_events_by_student([p["email"] for p in parts])
+    students = [one(p["email"], p["display_name"], _by_student.get(p["email"]), _lrs_ok)
+                for p in parts]
     # Universo de lições da sessão (união de todos os alunos), ordenado pela 1ª aparição.
     firsts: dict = {}
     for s in students:

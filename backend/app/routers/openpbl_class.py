@@ -666,16 +666,29 @@ async def class_roster(room_id: str, user: CurrentUser | None = Depends(optional
     else:
         registered_emails = _roster_registered.get(room_id, registered_emails)
 
-    async def in_package(email: str) -> bool | None:
-        """True/False pelo LRS; None = sem eventos na sessão (LRS pode atrasar)."""
+    async def fetch_events_by_student(emails_list: list[str]) -> dict:
+        """Eventos da turma INTEIRA numa única chamada ao LRS.
+
+        Antes isto era 1 request por aluno disparado em paralelo (asyncio.gather). Numa
+        aula grande, isso abria N conexões simultâneas no Scorm, esgotava o pool e
+        derrubava o serviço (incidente 2026-07-24). Agora: 1 request para a turma toda.
+        Em falha devolve {} → cada aluno vira None (sem sinal) e a resolução grudenta
+        abaixo mantém o último status — mesmo comportamento de antes.
+        """
+        if not emails_list:
+            return {}
         try:
-            async with httpx.AsyncClient(timeout=8) as c:
-                r = await c.get(f"{lrs}/interaction-events",
-                                params={"studentEmail": email, "limit": 60})
-            evs = (r.json() or {}).get("data") or []
+            async with httpx.AsyncClient(timeout=15) as c:
+                r = await c.get(f"{lrs}/interaction-events/by-students",
+                                params={"studentEmails": ",".join(emails_list),
+                                        "limitPerStudent": 60})
+            return (r.json() or {}).get("data") or {}
         except Exception:
-            return None
-        sess = sorted([e for e in evs if (e.get("createdAt") or "") >= since_iso],
+            return {}
+
+    def in_package(evs) -> bool | None:
+        """True/False pelo LRS; None = sem eventos na sessão (LRS pode atrasar)."""
+        sess = sorted([e for e in (evs or []) if (e.get("createdAt") or "") >= since_iso],
                       key=lambda x: x.get("createdAt") or "", reverse=True)
         if not sess:
             return None
@@ -687,7 +700,8 @@ async def class_roster(room_id: str, user: CurrentUser | None = Depends(optional
 
     emails = {(p["email"] or "").strip().lower(): None for p in parts
               if p["email"] and not p["is_staff"] and p["user_id"] != room["owner_id"]}
-    flags = await asyncio.gather(*[in_package(e) for e in emails]) if emails else []
+    by_student = await fetch_events_by_student(list(emails.keys()))
+    flags = [in_package(by_student.get(e)) for e in emails]
     # Resolução grudenta: `flag` só é True/False quando o LRS deu um sinal DEFINITIVO
     # (eventos do pacote / package_exited). Quando é None (LRS falhou ou ainda sem
     # eventos) NÃO invertemos o status — mantemos o último conhecido; e só no 1º contato
