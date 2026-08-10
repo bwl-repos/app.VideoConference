@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import "../styles/doc.css";
 
-const API = "https://video.openpbl.ai";
+const API = "https://video.pbltools.io";
 
 function Code({ children, lang = "bash" }: { children: string; lang?: string }) {
   const [copied, setCopied] = useState(false);
@@ -162,7 +162,7 @@ import VideoRoom from "@video-rooms-kit/sdk/VideoRoom";
 
 const sdk = createVideoRoomsSDK({
   apiBase: "${API}",
-  wsBase: "wss://video.openpbl.ai",
+  wsBase: "wss://video.pbltools.io",
   headers: () => ({ "X-User-Id": user.id, "X-User-Name": user.name }),
 });
 

@@ -27,8 +27,8 @@ services:
     image: node:20-alpine
     working_dir: /app
     environment:
-      VITE_API_BASE: https://video.openpbl.ai
-      VITE_WS_BASE: wss://video.openpbl.ai
+      VITE_API_BASE: https://video.pbltools.io
+      VITE_WS_BASE: wss://video.pbltools.io
     volumes:
       - ./frontend:/app
       - frontend_dist:/out

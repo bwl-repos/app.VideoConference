@@ -1,4 +1,4 @@
-video.openpbl.ai {
+video.pbltools.io {
 	@backend path /api/* /ws/* /health /health/*
 	handle @backend {
 		reverse_proxy backend:8000

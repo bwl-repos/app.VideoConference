@@ -105,5 +105,5 @@ ssh @SshOpt $Remote $remoteCmd
 if ($LASTEXITCODE -ne 0) { Fail 'falha no build/restart remoto.' }
 
 Write-Host ''
-Write-Host '[OK] Publicado em https://video.openpbl.ai (limpe o cache: Ctrl+Shift+R).' -ForegroundColor Green
+Write-Host '[OK] Publicado em https://video.pbltools.io (limpe o cache: Ctrl+Shift+R).' -ForegroundColor Green
 exit 0

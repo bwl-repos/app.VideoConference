@@ -12,6 +12,6 @@ keys:
 webhook:
   api_key: API57st43dmk
   urls:
-    - https://video.openpbl.ai/api/webhooks/livekit
+    - https://video.pbltools.io/api/webhooks/livekit
 logging:
   level: info

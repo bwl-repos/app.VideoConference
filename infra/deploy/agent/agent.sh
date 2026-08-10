@@ -5,7 +5,7 @@ set -uo pipefail
 NAME="${1:-node}"
 ROLE="${2:-}"
 SECRET="$(cat /opt/bwl/agent/node.secret 2>/dev/null)"
-URL="https://video.openpbl.ai/api/internal/nodes"
+URL="https://video.pbltools.io/api/internal/nodes"
 
 # CPU% from /proc/stat delta over 1s
 read -r _ u n s i io irq sirq st _ < /proc/stat

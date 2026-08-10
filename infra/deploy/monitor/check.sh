@@ -10,12 +10,12 @@ STATE="$DIR/state"
 
 problems=""
 
-H="$(curl -s -m 10 https://video.openpbl.ai/health/detail || true)"
+H="$(curl -s -m 10 https://video.pbltools.io/health/detail || true)"
 echo "$H" | grep -q '"ok":true' || problems+="• app /health/detail falhou (resp: ${H:0:120})\n"
 echo "$H" | grep -q '"db":true'  || problems+="• Banco de dados inacessível\n"
 
-site=$(curl -s -m 10 -o /dev/null -w "%{http_code}" https://video.openpbl.ai/ || echo 000)
-[ "$site" = "200" ] || problems+="• Site video.openpbl.ai retornou HTTP $site\n"
+site=$(curl -s -m 10 -o /dev/null -w "%{http_code}" https://video.pbltools.io/ || echo 000)
+[ "$site" = "200" ] || problems+="• Site video.pbltools.io retornou HTTP $site\n"
 
 rtc=$(curl -s -m 10 -o /dev/null -w "%{http_code}" https://rtc.openpbl.ai/ || echo 000)
 [ "$rtc" = "200" ] || problems+="• LiveKit rtc.openpbl.ai retornou HTTP $rtc\n"
