@@ -17,8 +17,8 @@ echo "$H" | grep -q '"db":true'  || problems+="• Banco de dados inacessível\n
 site=$(curl -s -m 10 -o /dev/null -w "%{http_code}" https://video.pbltools.io/ || echo 000)
 [ "$site" = "200" ] || problems+="• Site video.pbltools.io retornou HTTP $site\n"
 
-rtc=$(curl -s -m 10 -o /dev/null -w "%{http_code}" https://rtc.openpbl.ai/ || echo 000)
-[ "$rtc" = "200" ] || problems+="• LiveKit rtc.openpbl.ai retornou HTTP $rtc\n"
+rtc=$(curl -s -m 10 -o /dev/null -w "%{http_code}" https://rtc.pbltools.io/ || echo 000)
+[ "$rtc" = "200" ] || problems+="• LiveKit rtc.pbltools.io retornou HTTP $rtc\n"
 
 now="up"; [ -n "$problems" ] && now="down"
 prev="$(cat "$STATE" 2>/dev/null || echo up)"

@@ -3,6 +3,6 @@ redis:
   password: DxQP5fyvNCeK19JodZu4A_PVRUnJiraA
 api_key: API57st43dmk
 api_secret: JJIEfuad1sOht_nYe7-L0sHVFQdCf3CMlSVxq1D9SDA
-ws_url: wss://rtc.openpbl.ai
+ws_url: wss://rtc.pbltools.io
 insecure: false
 log_level: info
