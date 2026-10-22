@@ -1283,3 +1283,46 @@ button.vr-seq-label:disabled { opacity: .6; cursor: default; }
   .vr-stage:has(.vr-pbl-side) { flex-direction: column; }
   .vr-pbl-side { width: auto; flex: 0 0 auto; }
 }
+
+/* ── Menu de avaliação de desempenho (botão direito na câmera do aluno) ──────
+ *
+ * `position: fixed` e coordenadas do CURSOR, não do tile: a grade dos alunos
+ * rola e tem `overflow: hidden` (o tile recorta o vídeo), então um menu
+ * posicionado dentro dela seria cortado justamente nas câmeras da borda — que
+ * são metade delas numa turma cheia.
+ *
+ * O z-index fica acima do tile (3) e das barras de sinal, mas abaixo de
+ * diálogos modais: este menu é uma ação dentro da sala, não uma interrupção.
+ */
+.vr-aval-menu {
+  position: fixed; z-index: 60; min-width: 248px; max-width: 300px;
+  background: var(--vr-surface); border: 1px solid rgba(255,255,255,.14);
+  border-radius: 10px; padding: 6px; box-shadow: 0 10px 30px rgba(0,0,0,.45);
+}
+.vr-aval-menu__titulo {
+  padding: 8px 10px 10px; font-size: 12px; font-weight: 700;
+  color: var(--vr-text-dim, #9aa4b2); text-transform: uppercase; letter-spacing: .04em;
+}
+.vr-aval-menu__item {
+  display: block; width: 100%; text-align: left; cursor: pointer;
+  background: transparent; border: 0; border-radius: 8px; padding: 8px 10px;
+  color: inherit; font: inherit;
+}
+.vr-aval-menu__item:hover:not(:disabled) { background: rgba(255,255,255,.08); }
+.vr-aval-menu__item:disabled { opacity: .5; cursor: progress; }
+.vr-aval-menu__item--fraco { opacity: .78; }
+.vr-aval-menu__rotulo { display: block; font-size: 13px; font-weight: 600; }
+/* A ajuda explica o que cada nota SIGNIFICA. Sem ela "pró-ativa" e "reativa"
+   viram sinônimos para quem lê correndo, no meio de uma plenária. */
+.vr-aval-menu__ajuda {
+  display: block; font-size: 11px; color: var(--vr-text-dim, #9aa4b2); margin-top: 1px;
+}
+.vr-aval-menu__voltar {
+  display: block; width: 100%; text-align: left; cursor: pointer; margin-top: 2px;
+  background: transparent; border: 0; padding: 6px 10px;
+  color: var(--vr-text-dim, #9aa4b2); font: inherit; font-size: 12px;
+}
+.vr-aval-menu__erro {
+  margin: 6px 4px 2px; padding: 6px 8px; border-radius: 6px;
+  background: rgba(239,68,68,.14); color: #fca5a5; font-size: 12px;
+}

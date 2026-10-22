@@ -1418,7 +1418,7 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
           {amStaff && breakoutOpen && !breakout.active
             ? <HostBreakoutOverview roomId={roomId} onEnter={breakout.enter} />
             : scorm
-              ? <OpenPblStudentsGrid roster={pblRoster} localIsStaff={amStaff} localIdentity={identity} sideScreen={pblActive} />
+              ? <OpenPblStudentsGrid roomId={roomId} roster={pblRoster} localIsStaff={amStaff} localIdentity={identity} sideScreen={pblActive} />
               : <VideoGrid />}
           {showBoard && (
             <div className="vr-wb-overlay">
@@ -2193,7 +2193,122 @@ function TileComSinal() {
   );
 }
 
-function OpenPblStudentsGrid({ roster, localIsStaff, localIdentity, strip, sideScreen }: { roster: any | null; localIsStaff: boolean; localIdentity?: string; strip?: boolean; sideScreen?: boolean }) {
+/* ── Avaliação de desempenho na plenária ──────────────────────────────────────
+ *
+ * O facilitador clica com o botão DIREITO na câmera do aluno e dá a nota ali
+ * mesmo. Trocar de tela no meio da plenária — abrir outra aba, procurar o aluno
+ * numa lista, voltar — é a diferença entre a avaliação acontecer e não
+ * acontecer: a janela em que ele lembra do que o aluno acabou de fazer dura
+ * segundos.
+ *
+ * A nota vale para a PARTICIPAÇÃO, que é uma só. Quando ele dá 4 ("destacada"),
+ * o menu pergunta em QUAL critério — porque um 4 vale 4 só nesse critério e 3
+ * nos outros. Sem essa pergunta, um único destaque levantaria os cinco eixos
+ * juntos e o radar do aluno deixaria de mostrar onde ele é forte, que é a única
+ * coisa que um radar serve para mostrar.
+ */
+const NOTAS_DE_PARTICIPACAO: { valor: 1 | 2 | 3 | 4; rotulo: string; ajuda: string }[] = [
+  { valor: 4, rotulo: "Participação DESTACADA", ajuda: "destacou-se em um critério" },
+  { valor: 3, rotulo: "Participação pró-ativa", ajuda: "participou espontaneamente" },
+  { valor: 2, rotulo: "Participação reativa", ajuda: "participou quando chamado" },
+  { valor: 1, rotulo: "Participação resistente", ajuda: "não participou mesmo chamado" },
+];
+
+function MenuAvaliacao({ roomId, alvo, criterios, onFechar }: {
+  roomId: string;
+  alvo: { identity: string; nome: string; x: number; y: number };
+  criterios: string[];
+  onFechar: () => void;
+}) {
+  const sdk = useSDK();
+  // `null` = escolhendo a nota; 4 = escolhendo o critério do destaque.
+  const [etapa, setEtapa] = useState<null | 4>(null);
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState("");
+
+  // Fecha ao clicar fora ou com Esc. Sem isto o menu fica preso sobre a câmera
+  // do aluno — tapando justamente quem o facilitador está avaliando.
+  useEffect(() => {
+    const sair = (e: MouseEvent | KeyboardEvent) => {
+      if (e instanceof KeyboardEvent && e.key !== "Escape") return;
+      onFechar();
+    };
+    document.addEventListener("mousedown", sair);
+    document.addEventListener("keydown", sair);
+    return () => {
+      document.removeEventListener("mousedown", sair);
+      document.removeEventListener("keydown", sair);
+    };
+  }, [onFechar]);
+
+  async function enviar(nota: 1 | 2 | 3 | 4, destaque: number | null) {
+    setSalvando(true);
+    setErro("");
+    try {
+      await sdk.openpbl.avaliarDesempenho(roomId, { identity: alvo.identity, nota, destaque });
+      onFechar();
+    } catch (e: any) {
+      /* O ERRO FICA NA TELA, e o menu não fecha. Um clique que não gravou e
+         sumiu faria o facilitador avaliar a turma inteira achando que
+         registrou — e ninguém descobriria até o aluno não ver nota nenhuma. */
+      setErro(String(e?.message || e) || "não foi possível registrar");
+      setSalvando(false);
+    }
+  }
+
+  return (
+    <div
+      className="vr-aval-menu"
+      style={{ left: alvo.x, top: alvo.y }}
+      onMouseDown={(e) => e.stopPropagation()}
+      onContextMenu={(e) => e.preventDefault()}
+      role="menu"
+      aria-label={`Avaliar ${alvo.nome}`}
+    >
+      <div className="vr-aval-menu__titulo">
+        {etapa === 4 ? "Destacou-se em qual critério?" : `Avaliar ${alvo.nome}`}
+      </div>
+
+      {etapa !== 4 && NOTAS_DE_PARTICIPACAO.map((n) => (
+        <button
+          key={n.valor}
+          type="button"
+          className="vr-aval-menu__item"
+          disabled={salvando}
+          onClick={() => (n.valor === 4 ? setEtapa(4) : enviar(n.valor, null))}
+        >
+          <span className="vr-aval-menu__rotulo">{n.rotulo}</span>
+          <span className="vr-aval-menu__ajuda">{n.ajuda}</span>
+        </button>
+      ))}
+
+      {etapa === 4 && (
+        <>
+          {criterios.map((c, i) => (
+            <button key={c + i} type="button" className="vr-aval-menu__item"
+                    disabled={salvando} onClick={() => enviar(4, i)}>
+              <span className="vr-aval-menu__rotulo">{c}</span>
+            </button>
+          ))}
+          {/* SEM CRITÉRIO é uma escolha legítima, não um erro: o facilitador
+              pode achar que o aluno se destacou sem saber dizer em quê, e
+              obrigá-lo a escolher um produziria um destaque inventado. */}
+          <button type="button" className="vr-aval-menu__item vr-aval-menu__item--fraco"
+                  disabled={salvando} onClick={() => enviar(4, null)}>
+            <span className="vr-aval-menu__rotulo">Sem critério específico</span>
+            <span className="vr-aval-menu__ajuda">vale 3 em todos os eixos</span>
+          </button>
+          <button type="button" className="vr-aval-menu__voltar"
+                  disabled={salvando} onClick={() => setEtapa(null)}>← voltar</button>
+        </>
+      )}
+
+      {erro && <div className="vr-aval-menu__erro">{erro}</div>}
+    </div>
+  );
+}
+
+function OpenPblStudentsGrid({ roomId, roster, localIsStaff, localIdentity, strip, sideScreen }: { roomId: string; roster: any | null; localIsStaff: boolean; localIdentity?: string; strip?: boolean; sideScreen?: boolean }) {
   const tracks = useTracks(
     [{ source: Track.Source.Camera, withPlaceholder: true }, { source: Track.Source.ScreenShare, withPlaceholder: false }],
     { onlySubscribed: false },
@@ -2216,6 +2331,22 @@ function OpenPblStudentsGrid({ roster, localIsStaff, localIdentity, strip, sideS
   // O strip é uma faixa horizontal rolável; só a grade cheia se ajusta ao espaço.
   const { ref: gridRef, cols } = useFittedCols(strip ? 0 : studentTiles.length);
 
+  const sdk = useSDK();
+  const [avaliando, setAvaliando] = useState<{ identity: string; nome: string; x: number; y: number } | null>(null);
+  const [criterios, setCriterios] = useState<string[]>([]);
+
+  /* Os critérios são buscados UMA vez, e só para o facilitador: eles vêm do
+     template do Encontro e não mudam durante uma plenária. Buscar na abertura
+     de cada menu seria uma chamada ao elearn por clique direito. */
+  useEffect(() => {
+    if (!localIsStaff || criterios.length) return;
+    let vivo = true;
+    sdk.openpbl.criteriosDesempenho(roomId)
+      .then((r: { criterios: string[] }) => { if (vivo) setCriterios(r?.criterios || []); })
+      .catch(() => { /* sem nomes o menu ainda avalia; só não oferece destaque */ });
+    return () => { vivo = false; };
+  }, [roomId, localIsStaff, criterios.length, sdk]);
+
   const grid = (
     <div
       ref={gridRef}
@@ -2226,13 +2357,43 @@ function OpenPblStudentsGrid({ roster, localIsStaff, localIdentity, strip, sideS
       {studentTiles.map((t) => {
         const st = byId[t.participant.identity];
         return (
-          <div key={`${t.participant.identity}-st`} className="vr-pbl-tile" data-pkg={st?.in_package ? "in" : "out"}>
+          <div
+            key={`${t.participant.identity}-st`}
+            className="vr-pbl-tile"
+            data-pkg={st?.in_package ? "in" : "out"}
+            /* SÓ O FACILITADOR, e só sobre aluno. Esconder o menu do aluno não
+               é segurança — a rota exige host no servidor —, é não oferecer a
+               ele uma porta que vai bater na cara. */
+            onContextMenu={localIsStaff ? (e) => {
+              e.preventDefault();
+              /* A posição é LIMITADA aqui, e não no CSS: o menu tem
+                 tamanho conhecido e o clique pode ser na borda da tela — sem
+                 isto ele abre metade fora da janela, que é onde ficam as
+                 câmeras das pontas numa turma cheia. */
+              const LARG = 300, ALT = 280;
+              setAvaliando({
+                identity: t.participant.identity,
+                nome: (t.participant.name || "").trim() || "este aluno",
+                x: Math.min(e.clientX, Math.max(8, window.innerWidth - LARG - 8)),
+                y: Math.min(e.clientY, Math.max(8, window.innerHeight - ALT - 8)),
+              });
+            } : undefined}
+            title={localIsStaff ? "Botão direito: avaliar participação" : undefined}
+          >
             <ParticipantTile trackRef={t} />
             <SignalBars participant={t.participant} />
             {st?.registered && <span className="vr-pbl-reg" title="Registrado na sessão (class-code inserido)">✓</span>}
           </div>
         );
       })}
+      {avaliando && (
+        <MenuAvaliacao
+          roomId={roomId}
+          alvo={avaliando}
+          criterios={criterios}
+          onFechar={() => setAvaliando(null)}
+        />
+      )}
     </div>
   );
 

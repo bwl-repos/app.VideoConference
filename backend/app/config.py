@@ -52,5 +52,19 @@ class Settings(BaseSettings):
     openpbl_chat_user: str = ""                # HTTP Basic do painel do professor
     openpbl_chat_pass: str = ""
 
+    # Avaliação de desempenho na plenária. O facilitador clica com o botão
+    # direito na câmera do aluno e dá a nota de participação ali, sem sair da
+    # sala; a nota vai para o elearn (Rise), que é onde a conta da planilha
+    # vive (`app/services/desempenho_calculo.py` no openbpl.Rise).
+    #
+    # NÃO é a mesma integração de `openpbl_integration_url`: aquela fala com a
+    # API legada (ContentBuilder, PerformanceEvaluation), e o pacote de
+    # desempenho novo não mora lá. Mandar a nota para o lugar errado não daria
+    # erro -- ela simplesmente não apareceria para o aluno.
+    openpbl_rise_url: str = "https://elearnapp.openpbl.ai/api"
+    #: Bearer da conta de serviço no elearn. Vem do env (backend.env no
+    #: servidor), nunca do repo — mesma regra das chaves acima.
+    openpbl_rise_token: str = ""
+
 
 settings = Settings()

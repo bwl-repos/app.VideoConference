@@ -44,6 +44,27 @@ class ChatReply(BaseModel):
     content: str
 
 
+class AvaliacaoDesempenho(BaseModel):
+    """A nota que o facilitador dá a um aluno na plenária, pela própria sala.
+
+    Ele clica com o botão direito na câmera e escolhe ali, sem trocar de tela:
+    sair da videoconferência no meio da plenária para preencher um formulário
+    em outra aba é a diferença entre a avaliação acontecer e não acontecer.
+    """
+
+    #: A identidade LiveKit do participante — é o que o clique tem em mãos. O
+    #: e-mail é resolvido aqui, contra `video_room_participants`: aceitar o
+    #: e-mail direto do navegador deixaria o facilitador (ou qualquer um com o
+    #: token dele) escrever nota sobre quem não está na sala.
+    identity: str
+    #: 4 = DESTACADA · 3 = pró-ativa · 2 = reativa · 1 = resistente.
+    nota: int
+    #: Em qual critério ele se destacou (índice da dimensão). Só com nota 4.
+    #: Um 4 vale 4 apenas nesse critério; nos outros vale 3 — é a regra do
+    #: `N12` da planilha, aplicada no elearn, na leitura.
+    destaque: int | None = None
+
+
 # ── helpers ───────────────────────────────────────────────────────────────
 def _integration_headers() -> dict:
     if not settings.openpbl_integration_apikey:
@@ -245,6 +266,132 @@ async def release_gate(room_id: str, body: ClassRelease, user: CurrentUser = Dep
     state = _row_to_state(row)
     await hub.broadcast(room_id, "openpbl-class", state)
     return state
+
+
+#: Os critérios mudam com o template do Encontro, não durante uma plenária.
+#: Buscá-los a cada abertura do menu de contexto seria uma chamada ao elearn
+#: por clique direito do facilitador.
+_criterios_cache: tuple[float, list] | None = None
+_CRITERIOS_TTL = 300.0
+
+
+@router.get("/{room_id}/openpbl/criterios")
+async def listar_criterios(room_id: str, user: CurrentUser = Depends(get_current_user)):
+    """Os nomes dos critérios de desempenho, para o menu de avaliação.
+
+    Proxy do elearn, e não chamada direta do navegador: o token do elearn não
+    pode chegar ao browser — mesmo motivo de `/api/salas/*` existir no
+    CustomerApp.
+
+    A ORDEM é o contrato: o índice de um critério aqui é o `destaque` que volta
+    em `/avaliar`. Reordenar a lista no caminho trocaria os eixos sem erro
+    nenhum.
+    """
+    await _require_host(user)
+    global _criterios_cache
+    agora = time.monotonic()
+    if _criterios_cache and agora - _criterios_cache[0] < _CRITERIOS_TTL:
+        return {"criterios": _criterios_cache[1]}
+    if not settings.openpbl_rise_token:
+        return {"criterios": []}
+    try:
+        async with httpx.AsyncClient(timeout=15) as c:
+            r = await c.get(
+                f"{settings.openpbl_rise_url.rstrip('/')}/desempenho/criterios",
+                headers={"Authorization": f"Bearer {settings.openpbl_rise_token}"})
+        lista = (r.json() or {}).get("criterios") or [] if r.status_code == 200 else []
+    except Exception:
+        # Sem nomes o menu ainda avalia — só não oferece destaque por critério.
+        # Derrubar o menu inteiro por causa do rótulo seria perder a nota.
+        lista = []
+    _criterios_cache = (agora, lista)
+    return {"criterios": lista}
+
+
+@router.post("/{room_id}/openpbl/avaliar")
+async def avaliar_desempenho(room_id: str, body: AvaliacaoDesempenho,
+                             user: CurrentUser = Depends(get_current_user)):
+    """A nota de participação do aluno na plenária, dada durante a sessão.
+
+    ## Para onde ela vai, e por que não é a integração de sempre
+
+    Vai para o ELEARN (Rise), e não para `openpbl_integration_url`. Aquela é a
+    API legada (ContentBuilder, PerformanceEvaluation); o pacote de desempenho
+    novo e a conta da planilha vivem no Rise. Mandar para o lugar errado não
+    daria erro — a nota simplesmente não apareceria para o aluno, que é o pior
+    tipo de falha que esta rota pode ter.
+
+    ## O que esta rota NÃO faz
+
+    Não calcula nada. A regra do destaque (um 4 vale 4 só no critério
+    apontado), os pesos e a normalização 0–10 ficam todos no Rise, derivados na
+    LEITURA. Aqui só se registra o que o facilitador disse.
+
+    Também não deriva o `dimensionsId`: manda o `activity_id` e deixa o Rise
+    resolver. Uma segunda cópia daquela regra concordaria hoje e divergiria na
+    primeira correção — e o sintoma seria a nota sumir, sem erro nenhum.
+
+    ## Só o host, e só sobre quem está na sala
+
+    `_require_host` porque é nota sobre terceiro. E o e-mail do avaliado é
+    resolvido contra `video_room_participants`, não aceito do navegador: do
+    contrário bastaria o token do facilitador para escrever nota sobre
+    qualquer e-mail do mundo.
+    """
+    await _require_host(user)
+    row = await _get_class(room_id)
+    if not row:
+        raise HTTPException(404, "aula OpenPBL não iniciada nesta sala")
+    if body.nota not in (1, 2, 3, 4):
+        raise HTTPException(400, "nota deve ser 1, 2, 3 ou 4")
+    if not settings.openpbl_rise_token:
+        raise HTTPException(503, "Integração com o elearn não configurada (token ausente)")
+
+    alvo = await pool().fetchrow(
+        "SELECT email, display_name FROM video_room_participants "
+        "WHERE room_id=$1 AND user_id=$2", room_id, body.identity)
+    email = ((alvo["email"] if alvo else "") or "").strip().lower()
+    if not email:
+        # 404 e não 400: o pedido estava bem formado; quem não existe é o alvo.
+        # Acontece de verdade quando o aluno entrou como convidado sem e-mail —
+        # e aí a nota não teria onde cair.
+        raise HTTPException(404, "participante sem e-mail nesta sala")
+
+    corpo = {
+        "activity_id": str(row["activity_id"]),
+        "avaliado": email,
+        "avaliado_nome": (alvo["display_name"] or "") if alvo else "",
+        "avaliador": _facilitator_base_email(row["facilitator_email"] or ""),
+        "avaliador_nome": row["facilitator_name"] or "",
+        "nota": body.nota,
+        # Destaque só faz sentido com 4. Mandar o índice junto de uma nota 2
+        # encheria o banco de destaques que a regra ignora, e um dia alguém
+        # leria aquilo como se valesse.
+        "destaque": body.destaque if body.nota == 4 else None,
+        "class_code": str(row["class_course_id"] or ""),
+    }
+    base = settings.openpbl_rise_url.rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=20) as c:
+            r = await c.post(f"{base}/desempenho/facilitador", json=corpo,
+                             headers={"Authorization":
+                                      f"Bearer {settings.openpbl_rise_token}"})
+    except Exception as erro:  # noqa: BLE001
+        raise HTTPException(502, f"não foi possível falar com o elearn: {erro}")
+    if r.status_code >= 400:
+        raise HTTPException(502, f"elearn recusou a nota ({r.status_code})")
+
+    dados = r.json() if r.content else {}
+    if not dados.get("ok"):
+        # O elearn devolve 200 com `ok: false` quando o episódio não está
+        # publicado — ver a rota lá. Aqui vira erro VISÍVEL: o facilitador
+        # precisa saber que clicou e nada foi gravado, senão ele avalia a turma
+        # inteira achando que registrou.
+        raise HTTPException(409, dados.get("erro") or "o elearn não gravou a nota")
+
+    return {"ok": True, "avaliado": email, "nota": body.nota,
+            "destaque": corpo["destaque"],
+            "dimensions_id": dados.get("dimensions_id", "")}
 
 
 @router.post("/{room_id}/openpbl/close-registration")

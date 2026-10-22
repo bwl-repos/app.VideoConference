@@ -295,6 +295,17 @@ export function createVideoRoomsSDK(opts: SDKOptions) {
       closeRegistration: (roomId: string) =>
         call<OpenPblClass>(`/api/rooms/${roomId}/openpbl/close-registration`, { method: "POST" }),
       groups: (roomId: string) => call<any[]>(`/api/rooms/${roomId}/openpbl/groups`),
+      /** Os critérios de desempenho, na ORDEM — o índice aqui é o `destaque`
+       *  que `avaliarDesempenho` manda de volta. Reordenar trocaria os eixos. */
+      criteriosDesempenho: (roomId: string) =>
+        call<{ criterios: string[] }>(`/api/rooms/${roomId}/openpbl/criterios`),
+      /** A nota de participação do aluno na plenária, dada pelo facilitador no
+       *  menu de contexto da câmera. `destaque` só é usado com nota 4: um 4
+       *  vale 4 apenas no critério apontado, e 3 nos outros. */
+      avaliarDesempenho: (roomId: string, body: { identity: string; nota: 1 | 2 | 3 | 4; destaque?: number | null }) =>
+        call<{ ok: boolean; avaliado: string; nota: number; destaque: number | null }>(
+          `/api/rooms/${roomId}/openpbl/avaliar`,
+          { method: "POST", body: JSON.stringify(body) }),
       /** (Re)cria os breakouts a partir dos grupos montados pela API OpenPBL. */
       syncGroups: (roomId: string) =>
         call<{ ok: boolean; groups: number }>(`/api/rooms/${roomId}/openpbl/sync-groups`, { method: "POST" }),
