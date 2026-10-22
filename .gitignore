@@ -51,3 +51,10 @@ Thumbs.db
 # Artefatos de execução: relatórios, traces e capturas de falha.
 test-results/
 playwright-report/
+
+# Copias de seguranca de arquivos de ambiente. `*.env` ja cobre `backend.env`,
+# mas NAO cobre `backend.env.bak-202610221726` -- o sufixo tira a extensao do
+# padrao, e o arquivo carrega os mesmos segredos do original. Um `git add -A`
+# distraido o commitaria.
+*.bak-*
+*.env.bak
