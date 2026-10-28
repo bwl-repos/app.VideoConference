@@ -14,17 +14,24 @@ Basic). O aluno continua mandando pelo chat do pacote; o facilitador responde
 daqui de dentro da sala.
 """
 import asyncio
+import logging
 import json
 import math
 import time
 import httpx
-from datetime import timezone
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from ..auth import get_current_user, optional_user, CurrentUser
 from ..config import settings
 from ..db import pool
 from ..realtime.hub import hub
+from ..services import cadencia
+
+#: `bwl.cadencia` e nao o logger raiz: a cadencia decide sozinha e, quando
+#: alguem perguntar 'por que a aula avancou ali', a resposta tem de estar
+#: isolavel no log. O formato do app e uma linha por evento (`main.py`).
+logger = logging.getLogger("bwl.cadencia")
 from .breakouts import _broadcast_state as _broadcast_breakout_state
 
 router = APIRouter(prefix="/api/rooms", tags=["openpbl-class"])
@@ -42,6 +49,16 @@ class ClassRelease(BaseModel):
 
 class ChatReply(BaseModel):
     content: str
+
+
+class ModoDaCadencia(BaseModel):
+    """Liga ou desliga o facilitador automático desta sala."""
+    auto: bool
+
+
+class VotoDaTurma(BaseModel):
+    """A resposta de um aluno a "pode seguir?"."""
+    sim: bool
 
 
 class AvaliacaoDesempenho(BaseModel):
@@ -104,6 +121,19 @@ def _row_to_state(row) -> dict:
         "released": row["released"],
         "code_hidden": row["code_hidden"],
         "stage": row["stage"] if "stage" in row else "session_start",
+        # ── Cadência ────────────────────────────────────────────────────────
+        # `auto` desligado = a sala não avança sozinha e o host dirige, como
+        # sempre dirigiu. Os campos do voto vão mesmo quando não há voto: a
+        # tela distingue "não há pergunta" de "a pergunta fechou" pelo `None`,
+        # e omitir a chave faria as duas coisas parecerem a mesma.
+        "auto_mode": bool(row["auto_mode"]) if "auto_mode" in row else False,
+        "stage_started_at": (row["stage_started_at"].isoformat()
+                             if "stage_started_at" in row and row["stage_started_at"] else None),
+        "vote_ends_at": (row["vote_ends_at"].isoformat()
+                         if "vote_ends_at" in row and row["vote_ends_at"] else None),
+        "vote_stage": row["vote_stage"] if "vote_stage" in row else None,
+        "votes": ((json.loads(row["votes"]) if isinstance(row["votes"], str) else row["votes"])
+                  if "votes" in row and row["votes"] else {}),
     }
 
 
@@ -139,6 +169,94 @@ def _facilitator_base_email(scoped: str) -> str:
 async def _get_class(room_id: str):
     return await pool().fetchrow(
         "SELECT * FROM video_room_openpbl_class WHERE room_id=$1", room_id)
+
+
+# ── Cadência: a sala avança de etapa sozinha ─────────────────────────────────
+#
+# A regra inteira vive em `services/cadencia.py`, pura e provada. Aqui está só
+# a tubulação: ler o estado, perguntar à regra o que fazer, e gravar.
+#
+# ## Por que a avaliação é PREGUIÇOSA, e não um laço de fundo
+#
+# A cadência é avaliada a cada leitura do estado da aula — e todo mundo na sala
+# faz essa leitura por polling. Um laço de fundo precisaria sobreviver a
+# reinício de processo, a deploy no meio de um encontro e a duas réplicas
+# decidindo a mesma coisa ao mesmo tempo. A avaliação preguiçosa não tem
+# nenhum desses problemas: se ninguém está olhando, não há encontro para
+# conduzir.
+
+async def _presentes(room_id: str) -> list[str]:
+    """Identidades dos ALUNOS na sala agora.
+
+    `left_at IS NULL` é a presença; `is_staff` sai da conta porque o host não
+    vota sobre o próprio ritmo — ele tem o botão.
+    """
+    linhas = await pool().fetch(
+        "SELECT user_id FROM video_room_participants "
+        "WHERE room_id=$1 AND left_at IS NULL AND NOT is_staff", room_id)
+    return [l["user_id"] for l in linhas]
+
+
+def _estado_da_cadencia(row) -> cadencia.Estado:
+    votos = row["votes"] if "votes" in row.keys() else None
+    if isinstance(votos, str):
+        votos = json.loads(votos or "{}")
+    return cadencia.Estado(
+        stage=row["stage"],
+        auto=bool(row["auto_mode"]) if "auto_mode" in row.keys() else False,
+        comecou_em=row["stage_started_at"] if "stage_started_at" in row.keys() else None,
+        voto_fecha_em=row["vote_ends_at"] if "vote_ends_at" in row.keys() else None,
+        voto_da_etapa=row["vote_stage"] if "vote_stage" in row.keys() else None,
+        votos=votos or {},
+    )
+
+
+async def _aplicar_cadencia(room_id: str, row):
+    """Avalia a cadência e grava o que ela mandar. Devolve a linha corrente.
+
+    Devolve a linha ATUALIZADA (ou a mesma, quando nada mudou) para quem chamou
+    não precisar reler — e para não haver duas versões do estado circulando na
+    mesma resposta.
+    """
+    if not row or "auto_mode" not in row.keys():
+        return row            # banco sem a migration 018 ainda
+    estado = _estado_da_cadencia(row)
+    if not estado.auto:
+        return row            # atalho: modo manual não lê presença nem grava
+
+    agora = datetime.now(timezone.utc)
+    d = cadencia.decidir(estado, agora, await _presentes(room_id))
+
+    if d.acao == "abrir_voto":
+        await pool().execute(
+            "UPDATE video_room_openpbl_class "
+            "SET vote_ends_at=$2, vote_stage=$3, votes='{}'::jsonb WHERE room_id=$1",
+            room_id, d.voto_fecha_em, estado.stage)
+    elif d.acao == "avancar":
+        await pool().execute(
+            "UPDATE video_room_openpbl_class "
+            "SET stage=$2, stage_started_at=$3, vote_ends_at=NULL, vote_stage=NULL, "
+            "    votes='{}'::jsonb WHERE room_id=$1",
+            room_id, d.proxima, agora)
+    elif d.acao == "estender":
+        # A etapa recomeça a contar a partir de AGORA menos a duração, mais a
+        # tolerância: ela ganha só o empurrão, não outro período inteiro.
+        dur = cadencia.DURACAO_DA_ETAPA.get(estado.stage) or 0
+        novo_inicio = agora - timedelta(seconds=dur) + cadencia.TOLERANCIA
+        await pool().execute(
+            "UPDATE video_room_openpbl_class "
+            "SET stage_started_at=$2, vote_ends_at=NULL, vote_stage=NULL, "
+            "    votes='{}'::jsonb WHERE room_id=$1",
+            room_id, novo_inicio)
+    else:
+        return row
+
+    logger.info("[cadencia] sala=%s %s (%s) %d/%d",
+                room_id, d.acao, d.porque, d.sim, d.total)
+    nova = await _get_class(room_id)
+    if d.acao in ("abrir_voto", "avancar"):
+        await hub.broadcast(room_id, "openpbl-class", _row_to_state(nova))
+    return nova
 
 
 # ── endpoints ─────────────────────────────────────────────────────────────
@@ -221,6 +339,11 @@ async def get_class(room_id: str, user: CurrentUser | None = Depends(optional_us
     row = await _get_class(room_id)
     if not row:
         return {"active": False}
+    # A CADÊNCIA É AVALIADA AQUI, na leitura, e não num laço de fundo: todo
+    # mundo na sala faz polling deste endpoint, e um laço precisaria sobreviver
+    # a reinício de processo, a deploy no meio de um encontro e a duas réplicas
+    # decidindo a mesma coisa. Sem ninguém olhando, não há encontro a conduzir.
+    row = await _aplicar_cadencia(room_id, row) or row
     return _row_to_state(row)
 
 
@@ -738,6 +861,72 @@ class StageSet(BaseModel):
     stage: str
 
 
+@router.post("/{room_id}/openpbl/cadencia")
+async def definir_modo(room_id: str, body: ModoDaCadencia,
+                       user: CurrentUser = Depends(get_current_user)):
+    """Liga/desliga o facilitador automático. Só o host.
+
+    Desligar é o freio de mão: quando a cadência vai mal no meio de uma aula, o
+    host assume e os comandos que ele sempre teve voltam a ser os únicos que
+    mexem na etapa. Por isso o modo manual tem precedência dentro da própria
+    regra (ver `cadencia.decidir`) e não só aqui.
+
+    LIGAR marca a hora de início da etapa corrente. Sem isso a etapa estaria
+    correndo desde sempre e a sala abriria um voto no mesmo segundo em que a
+    automação fosse ligada -- surpreendendo justamente quem acabou de confiar
+    nela.
+    """
+    await _require_host(user)
+    row = await _get_class(room_id)
+    if not row:
+        raise HTTPException(404, "aula OpenPBL não iniciada nesta sala")
+    await pool().execute(
+        "UPDATE video_room_openpbl_class "
+        "SET auto_mode=$2, stage_started_at=$3, vote_ends_at=NULL, vote_stage=NULL, "
+        "    votes='{}'::jsonb WHERE room_id=$1",
+        room_id, bool(body.auto),
+        datetime.now(timezone.utc) if body.auto else None)
+    row = await _get_class(room_id)
+    estado = _row_to_state(row)
+    await hub.broadcast(room_id, "openpbl-class", estado)
+    logger.info("[cadencia] sala=%s modo=%s", room_id, "auto" if body.auto else "manual")
+    return estado
+
+
+@router.post("/{room_id}/openpbl/voto")
+async def votar(room_id: str, body: VotoDaTurma,
+                user: CurrentUser = Depends(get_current_user)):
+    """O voto de um aluno em "pode seguir?".
+
+    Não exige host: quem vota é a turma. O voto é gravado pela IDENTIDADE de
+    quem chama, nunca por um campo do corpo -- do contrário um aluno votaria
+    pelos colegas e decidiria o ritmo da aula sozinho.
+
+    Votar fora de uma janela aberta não é erro: é uma corrida normal (o aluno
+    clicou no instante em que a janela fechou). Responde o estado sem gravar,
+    em vez de um 4xx que a tela teria de tratar.
+    """
+    row = await _get_class(room_id)
+    if not row:
+        raise HTTPException(404, "aula OpenPBL não iniciada nesta sala")
+    if "vote_ends_at" not in row.keys() or not row["vote_ends_at"]:
+        return _row_to_state(row)
+    if datetime.now(timezone.utc) >= row["vote_ends_at"]:
+        return _row_to_state(row)
+
+    # `jsonb_set` e não ler-modificar-gravar: dois alunos clicando no mesmo
+    # instante se sobrescreveriam, e o voto perdido seria invisível.
+    await pool().execute(
+        "UPDATE video_room_openpbl_class "
+        "SET votes = jsonb_set(COALESCE(votes, '{}'::jsonb), ARRAY[$2], $3::jsonb, true) "
+        "WHERE room_id=$1",
+        room_id, user.id, "true" if body.sim else "false")
+    row = await _get_class(room_id)
+    estado = _row_to_state(row)
+    await hub.broadcast(room_id, "openpbl-class", estado)
+    return estado
+
+
 @router.post("/{room_id}/openpbl/stage")
 async def set_stage(room_id: str, body: StageSet, user: CurrentUser = Depends(get_current_user)):
     """Cursor da etapa do facilitador (botão verde ▶). Persiste + sincroniza."""
@@ -748,8 +937,14 @@ async def set_stage(room_id: str, body: StageSet, user: CurrentUser = Depends(ge
     row = await _get_class(room_id)
     if not row:
         raise HTTPException(404, "aula OpenPBL não iniciada nesta sala")
+    # MARCA O INÍCIO e descarta voto em curso. Sem isso, o host avançando à mão
+    # deixaria a etapa nova com a hora da anterior -- e a cadência abriria um
+    # voto imediatamente sobre algo que acabou de começar.
     await pool().execute(
-        "UPDATE video_room_openpbl_class SET stage=$2 WHERE room_id=$1", room_id, stage)
+        "UPDATE video_room_openpbl_class "
+        "SET stage=$2, stage_started_at=$3, vote_ends_at=NULL, vote_stage=NULL, "
+        "    votes='{}'::jsonb WHERE room_id=$1",
+        room_id, stage, datetime.now(timezone.utc))
     row = await _get_class(room_id)
     state = _row_to_state(row)
     await hub.broadcast(room_id, "openpbl-class", state)
