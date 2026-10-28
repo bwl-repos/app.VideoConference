@@ -1290,14 +1290,19 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
 
         {/* A PERGUNTA DA CADÊNCIA, para a sala inteira. Fica fora do bloco do
             host: quem vota é a turma, e o host vê o mesmo cartão para saber o
-            que está sendo perguntado (ele não vota -- tem o botão). */}
+            que está sendo perguntado (ele não vota -- tem o botão).
+
+            `presentes` vem de `progresso.alunos`, não da contagem da lista: a
+            lista traz quem já entrou nesta sala algum dia (o backend nunca
+            fecha `left_at`), e o cartão diria "3 de 47" numa turma de 12 --
+            sendo que 47 não é o número que a cadência apura. Ver `_presentes`. */}
         {pblActive && pblClass?.vote_ends_at && (
           <CartaoDoVoto
             roomId={roomId}
             fechaEm={pblClass.vote_ends_at}
             meuVoto={identity ? (pblClass.votes || {})[identity] : undefined}
             votos={Object.keys(pblClass.votes || {}).length}
-            presentes={(pblRoster?.students || []).filter((x: any) => !x.is_staff).length}
+            presentes={pblRoster?.progresso?.alunos ?? 0}
           />
         )}
 

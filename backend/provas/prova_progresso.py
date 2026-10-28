@@ -121,9 +121,18 @@ ROUTER = (RAIZ / "app/routers/openpbl_class.py").read_text(encoding="utf-8")
 conferir('"progresso": {' in ROUTER,
          "o roster devolve o resumo",
          "cada cliente contando do seu jeito daria números diferentes")
-conferir('if not e["is_staff"]' in ROUTER,
-         "e o denominador exclui o facilitador",
-         "contá-lo faria a turma parecer sempre incompleta")
+conferir('if not e["is_staff"] and e["na_sala"]' in ROUTER,
+         "o denominador exclui o facilitador E quem não está na sala",
+         "contar o host faria a turma parecer sempre incompleta")
+
+#: `na_sala` não é detalhe: `left_at` nunca fecha no banco desta aplicação
+#: (medido: 321 linhas, nenhuma fechada), então contar por ele punha aqui todo
+#: mundo que já entrou nesta sala algum dia -- "3 de 47" numa turma de 12. Um
+#: número plausível e errado, que é o pior tipo. `prova_cadencia.py` seção 14
+#: cuida da outra metade: a cadência apurando sobre a mesma lista.
+conferir("left_at" not in ROUTER[ROUTER.index('"progresso": {'):],
+         "e não pelo `left_at`, que nunca fecha",
+         "a tela e a cadência têm de ver a mesma turma")
 conferir("respondeu(by_student.get(email), since_iso," in ROUTER,
          "derivado dos MESMOS eventos já buscados",
          "uma consulta por aluno seriam 30 chamadas ao LRS a cada 8s")

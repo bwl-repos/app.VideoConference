@@ -146,6 +146,32 @@ def maioria(sim: int, total: int) -> bool:
     return total > 0 and sim * 2 > total
 
 
+def precisa_de_presenca(estado: Estado, agora: datetime) -> bool:
+    """A decisão deste instante depende de QUEM está na sala?
+
+    Só a apuração usa a lista de presentes, e a apuração só acontece quando uma
+    janela de voto fechou sobre a etapa que ainda corre. Em todo o resto -- modo
+    manual, etapa dentro do tempo, voto em andamento, etapa terminal -- a lista
+    é irrelevante e `decidir` devolve o mesmo com ela ou sem ela.
+
+    Existe para o chamador não pagar uma consulta à sala a cada leitura de
+    estado: a cadência é avaliada no polling de todo mundo que está na aula.
+    E vive AQUI, ao lado da regra, porque é a MESMA condição que `decidir` usa
+    -- as duas afastadas divergiriam no primeiro ajuste, e o sintoma seria uma
+    apuração feita sobre lista vazia, isto é, uma sala que não avança sem
+    ninguém entender por quê. `provas/prova_cadencia.py` amarra as duas.
+    """
+    if not estado.auto:
+        return False
+    if estado.stage not in ORDEM or estado.stage == "done":
+        return False
+    if estado.voto_fecha_em is None:
+        return False
+    if estado.voto_da_etapa != estado.stage:
+        return False
+    return agora >= estado.voto_fecha_em
+
+
 def decidir(estado: Estado, agora: datetime, presentes: list[str]) -> Decisao:
     """A decisão da cadência neste instante.
 

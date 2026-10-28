@@ -27,6 +27,7 @@ from ..config import settings
 from ..db import pool
 from ..realtime.hub import hub
 from ..services import cadencia
+from ..services.livekit_service import list_participant_identities
 from ..services.progresso import (
     e_avaliacao_de_pares,
     e_resposta_de_risco,
@@ -191,15 +192,35 @@ async def _get_class(room_id: str):
 # conduzir.
 
 async def _presentes(room_id: str) -> list[str]:
-    """Identidades dos ALUNOS na sala agora.
+    """Identidades dos ALUNOS conectados AGORA, segundo o LiveKit.
 
-    `left_at IS NULL` é a presença; `is_staff` sai da conta porque o host não
-    vota sobre o próprio ritmo — ele tem o botão.
+    Quem está na sala é o SFU que sabe. A tabela `video_room_participants` NÃO
+    serve para isso: nada no backend fecha `left_at` -- não existe handler de
+    `participant_left` --, então `left_at IS NULL` quer dizer "já entrou nesta
+    sala alguma vez", para sempre. Medido em produção: 321 linhas, nenhuma
+    fechada em toda a história do banco; uma sala de julho tinha 12 "presentes".
+
+    E isso não apareceria como erro. Apareceria como uma sala que nunca avança:
+    quem não vota conta como "não", e maioria estrita de uma turma que foi
+    embora há três meses é inalcançável. A regra estava certa; a entrada dela
+    era mentira.
+
+    O banco entra só para o PAPEL: o LiveKit diz quem está conectado, a tabela
+    diz quem é staff. O host sai da conta porque não vota sobre o próprio ritmo
+    -- ele tem o botão.
+
+    Lista vazia (sala vazia, ou LiveKit fora do ar -- `list_participant_identities`
+    devolve `[]` quando falha) não avança nada: `maioria` exige `total > 0`. O
+    viés é o mesmo de toda a cadência, que é esperar.
     """
+    vivos = await list_participant_identities(room_id)
+    if not vivos:
+        return []
     linhas = await pool().fetch(
         "SELECT user_id FROM video_room_participants "
-        "WHERE room_id=$1 AND left_at IS NULL AND NOT is_staff", room_id)
-    return [l["user_id"] for l in linhas]
+        "WHERE room_id=$1 AND is_staff", room_id)
+    staff = {l["user_id"] for l in linhas}
+    return sorted(i for i in set(vivos) if i not in staff)
 
 
 def _estado_da_cadencia(row) -> cadencia.Estado:
@@ -230,7 +251,12 @@ async def _aplicar_cadencia(room_id: str, row):
         return row            # atalho: modo manual não lê presença nem grava
 
     agora = datetime.now(timezone.utc)
-    d = cadencia.decidir(estado, agora, await _presentes(room_id))
+    # A lista de presentes custa uma chamada ao LiveKit, e isto roda no polling
+    # de todo mundo que está na aula. Só a apuração precisa dela -- quem decide
+    # se é o caso é a própria regra, para a condição não viver em dois lugares.
+    presentes = (await _presentes(room_id)
+                 if cadencia.precisa_de_presenca(estado, agora) else [])
+    d = cadencia.decidir(estado, agora, presentes)
 
     if d.acao == "abrir_voto":
         await pool().execute(
@@ -1082,6 +1108,13 @@ async def class_roster(room_id: str, user: CurrentUser | None = Depends(optional
     in_pkg = {e: _resolve(e, f) for e, f in zip(emails.keys(), flags)}
     _roster_sticky[room_id] = in_pkg          # store limitado aos participantes atuais
 
+    # Quem está conectado AGORA, segundo o LiveKit. A tabela não sabe: ver
+    # `_presentes` -- `left_at` nunca fecha, então ela lista quem já entrou
+    # nesta sala algum dia. A LISTA de alunos segue inteira, porque a tela a
+    # consome como tabela de consulta por identidade (`byId[s.identity]`) e uma
+    # entrada a mais ali é inerte; é para CONTAR que a diferença importa.
+    na_sala = set(await list_participant_identities(room_id))
+
     students = []
     for p in parts:
         email = (p["email"] or "").strip().lower()
@@ -1090,6 +1123,7 @@ async def class_roster(room_id: str, user: CurrentUser | None = Depends(optional
             "identity": p["user_id"],
             "name": p["display_name"] or p["user_id"],
             "is_staff": is_staff,
+            "na_sala": p["user_id"] in na_sala,
             "in_package": (in_pkg.get(email, False) if not is_staff else None),
             "registered": (email in registered_emails) if (email and not is_staff) else False,
             # PROGRESSO DAS RESPOSTAS, derivado dos MESMOS eventos que já foram
@@ -1118,10 +1152,15 @@ async def class_roster(room_id: str, user: CurrentUser | None = Depends(optional
         # O RESUMO, pronto. A tela poderia contar, mas então cada cliente
         # contaria do seu jeito -- e "12 de 30" na tela do host precisa ser o
         # mesmo número que a cadência enxerga.
+        #
+        # Por isso NUMERADOR E DENOMINADOR são sobre quem está na sala agora, a
+        # mesma turma que a cadência apura. Contar pelo `left_at` punha aqui
+        # todo mundo que já entrou nesta sala algum dia: "3 de 47" numa turma de
+        # 12, que é um número plausível e errado -- o pior tipo.
         "progresso": {
-            "riscos": sum(1 for e in students if e.get("respondeu_riscos")),
-            "pares": sum(1 for e in students if e.get("avaliou_pares")),
-            "alunos": sum(1 for e in students if not e["is_staff"]),
+            "riscos": sum(1 for e in students if e.get("respondeu_riscos") and e["na_sala"]),
+            "pares": sum(1 for e in students if e.get("avaliou_pares") and e["na_sala"]),
+            "alunos": sum(1 for e in students if not e["is_staff"] and e["na_sala"]),
         },
     }
     _roster_cache[room_id] = (now, out)

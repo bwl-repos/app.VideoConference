@@ -31,7 +31,7 @@ sys.path.insert(0, str(RAIZ))
 
 from app.services.cadencia import (  # noqa: E402
     DURACAO_DA_ETAPA, JANELA_DO_VOTO, ORDEM, Estado, apurar, decidir, maioria,
-    proxima_etapa,
+    precisa_de_presenca, proxima_etapa,
 )
 
 T0 = datetime(2026, 10, 28, 14, 0, 0)
@@ -350,6 +350,23 @@ def so_codigo(texto: str) -> str:
     return "\n".join(l for l in texto.splitlines() if not l.lstrip().startswith("#"))
 
 
+def sem_docstring(texto: str) -> str:
+    """Idem para a docstring -- e só para ela, não para toda tripla-quota.
+
+    Esta prova já me pegou uma vez: a conferência de que `_presentes` não usa
+    mais `left_at` passou a falhar porque a DOCSTRING explica justamente que a
+    coluna não serve. Uma prova que lê a explicação mede a explicação.
+
+    Tira só o PRIMEIRO bloco, que é a docstring. Tirar todos levaria embora o
+    SQL -- que aqui vive em tripla-quota e é exatamente o que a seção 13 mede.
+    """
+    i = texto.find('"""')
+    if i < 0:
+        return texto
+    j = texto.find('"""', i + 3)
+    return texto[:i] + texto[j + 3:] if j > 0 else texto[:i]
+
+
 def corpo(nome: str, ate: str) -> str:
     t = ROUTER[ROUTER.index(nome):]
     return so_codigo(t[:t.index(ate)])
@@ -389,6 +406,113 @@ for col in ("auto_mode", "stage_started_at", "vote_ends_at", "vote_stage", "vote
     conferir(col not in insert,
              "iniciar aula não escreve `%s`" % col,
              "nomeá-la quebraria o start num banco sem a 018")
+
+print()
+print("14) presença é o que o LiveKit sabe, não o que a tabela diz")
+print()
+
+#: O DEFEITO QUE ISTO FIXA, medido em producao em 2026-10-28:
+#: `video_room_participants` tinha 321 linhas e NENHUMA com `left_at` -- nada no
+#: backend fecha essa coluna, nao existe handler de `participant_left`. Logo
+#: `left_at IS NULL` nao significa "esta na sala": significa "ja entrou nesta
+#: sala alguma vez", para sempre. Uma sala de julho listava 12 "presentes".
+#:
+#: Como quem nao vota conta como "nao", maioria estrita de uma turma que foi
+#: embora e inalcancavel: a cadencia NUNCA avancaria. E nao daria erro nenhum --
+#: daria uma aula parada. A regra estava certa; a entrada dela era mentira.
+PRESENTES = ROUTER[ROUTER.index("async def _presentes"):]
+PRESENTES = sem_docstring(so_codigo(PRESENTES[:PRESENTES.index("def _estado_da_cadencia")]))
+
+conferir("list_participant_identities(room_id)" in PRESENTES,
+         "a presença vem do LiveKit",
+         "quem está conectado é o SFU que sabe")
+conferir("left_at" not in PRESENTES,
+         "e NÃO de `left_at`, que nunca fecha",
+         "a coluna nunca recebeu uma hora em toda a história do banco")
+conferir("is_staff" in PRESENTES,
+         "CONTROLE: o banco ainda entra, para dizer quem é staff",
+         "o host não vota sobre o próprio ritmo")
+
+#: Sala vazia e LiveKit fora do ar dão a mesma lista vazia -- e nenhuma das
+#: duas pode avançar a aula. `maioria` exige `total > 0`.
+conferir(maioria(0, 0) is False,
+         "lista vazia não avança nada",
+         "LiveKit fora do ar não pode empurrar a aula")
+
+print()
+print("15) a presença só é buscada quando a decisão depende dela")
+print()
+
+#: Uma chamada ao LiveKit a cada leitura de estado seria uma por aluno a cada
+#: 8 segundos. `precisa_de_presenca` existe para evitar isso -- mas a economia
+#: só vale se ela concordar com `decidir`. Discordando para MENOS, a apuração
+#: aconteceria sobre lista vazia e a sala não avançaria nunca: o defeito que
+#: acabamos de consertar, de volta por outra porta.
+ABERTO = T0 + timedelta(seconds=DURACAO_DA_ETAPA["synopsis"])
+CASOS = [
+    ("modo manual", est(auto=False)),
+    ("etapa dentro do tempo", est()),
+    ("etapa terminal", est(stage="done")),
+    ("etapa sem relógio", est(stage="session_start")),
+    ("sem hora de início", est(comecou_em=None)),
+    ("voto em andamento", est(voto_fecha_em=ABERTO + timedelta(seconds=10),
+                              voto_da_etapa="synopsis")),
+    ("etapa trocada durante o voto", est(voto_fecha_em=ABERTO,
+                                         voto_da_etapa="groups")),
+    ("tempo esgotado, sem voto", est()),
+]
+AGORA = ABERTO + timedelta(seconds=5)
+
+divergiu = []
+for nome, e in CASOS:
+    if precisa_de_presenca(e, AGORA):
+        continue
+    #: Se a regra diz que não precisa, `decidir` tem de dar o MESMO resultado
+    #: com a turma inteira ou com lista vazia.
+    com = decidir(e, AGORA, TURMA)
+    sem = decidir(e, AGORA, [])
+    if (com.acao, com.proxima) != (sem.acao, sem.proxima):
+        divergiu.append(nome)
+
+conferir(not divergiu,
+         "sem presença necessária, a decisão é a mesma lista ou não",
+         "divergiu em: %s" % ", ".join(divergiu) if divergiu else
+         "é o que autoriza não pagar a chamada")
+
+#: E o contrário: na apuração ela é indispensável.
+apurando = est(voto_fecha_em=ABERTO, voto_da_etapa="synopsis",
+               votos={p: True for p in TURMA})
+conferir(precisa_de_presenca(apurando, AGORA) is True,
+         "CONTROLE: fechada a janela sobre a etapa corrente, precisa",
+         "é o único momento em que a lista decide algo")
+conferir(decidir(apurando, AGORA, TURMA).acao == "avancar"
+         and decidir(apurando, AGORA, []).acao == "estender",
+         "e aí a lista MUDA a decisão",
+         "se não mudasse, o predicado não teria o que proteger")
+
+#: FALSIFICAÇÃO do atalho no router: ele tem de consultar a regra, não repetir
+#: a condição. Duas cópias divergiriam no primeiro ajuste.
+aplicar = so_codigo(ROUTER[ROUTER.index("async def _aplicar_cadencia"):
+                           ROUTER.index("# ── endpoints")])
+conferir("cadencia.precisa_de_presenca(estado, agora)" in aplicar,
+         "o router pergunta à regra se precisa",
+         "e não reimplementa a condição do lado de fora")
+conferir("_presentes(room_id)" in aplicar and "decidir(estado, agora, presentes)" in aplicar,
+         "CONTROLE: e quando precisa, busca de verdade")
+
+print()
+print("16) o número na tela é o número que a cadência apura")
+print()
+
+ROSTER = so_codigo(ROUTER[ROUTER.index('"progresso": {'):])
+for campo in ("riscos", "pares", "alunos"):
+    conferir('e["na_sala"]' in ROSTER.split('"%s":' % campo)[1].split("\n")[0],
+             "`%s` conta só quem está na sala" % campo,
+             "contar pelo `left_at` daria '3 de 47' numa turma de 12")
+conferir('"na_sala": p["user_id"] in na_sala' in ROUTER
+         and "na_sala = set(await list_participant_identities(room_id))" in ROUTER,
+         "e `na_sala` vem da MESMA fonte que a cadência usa",
+         "duas fontes de presença daria dois números na mesma tela")
 
 print()
 print("falhas: %d" % falhas)
