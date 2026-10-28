@@ -99,6 +99,15 @@ export interface OpenPblClass {
   released?: boolean;              // gate Percepções
   code_hidden?: boolean;
   stage?: OpenPblStage;            // sequenciamento do ▶
+  /** Cadência: a sala avança sozinha com o aval da turma. Automático é o
+   *  padrão; o host desliga quando quiser assumir. */
+  auto_mode?: boolean;
+  stage_started_at?: string | null;
+  /** Janela do voto "pode seguir?". `null` = não há pergunta aberta. */
+  vote_ends_at?: string | null;
+  vote_stage?: string | null;
+  /** `{identidade: true|false}`, só de quem votou. Quem não vota conta "não". */
+  votes?: Record<string, boolean>;
 }
 
 /**
@@ -295,6 +304,18 @@ export function createVideoRoomsSDK(opts: SDKOptions) {
       closeRegistration: (roomId: string) =>
         call<OpenPblClass>(`/api/rooms/${roomId}/openpbl/close-registration`, { method: "POST" }),
       groups: (roomId: string) => call<any[]>(`/api/rooms/${roomId}/openpbl/groups`),
+      /** Liga/desliga o facilitador automático desta sala. Só o host.
+       *  Automático é o PADRÃO; desligar é o freio de mão. */
+      setCadencia: (roomId: string, auto: boolean) =>
+        call<OpenPblClass>(`/api/rooms/${roomId}/openpbl/cadencia`, {
+          method: "POST", body: JSON.stringify({ auto }),
+        }),
+      /** O voto de um aluno em "pode seguir?". A identidade vem do token, não
+       *  do corpo — ninguém vota pelos colegas. */
+      votar: (roomId: string, sim: boolean) =>
+        call<OpenPblClass>(`/api/rooms/${roomId}/openpbl/voto`, {
+          method: "POST", body: JSON.stringify({ sim }),
+        }),
       /** Os critérios de desempenho, na ORDEM — o índice aqui é o `destaque`
        *  que `avaliarDesempenho` manda de volta. Reordenar trocaria os eixos. */
       criteriosDesempenho: (roomId: string) =>

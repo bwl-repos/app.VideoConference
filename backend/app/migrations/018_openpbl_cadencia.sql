@@ -4,11 +4,17 @@
 -- segundos. Avança se a maioria dos PRESENTES disser que sim; quem não vota
 -- conta como "não". Ver `app/services/cadencia.py`, que tem a regra inteira.
 --
--- `auto_mode` nasce FALSE de propósito: salas que já existem continuam exatamente
--- como estavam, dirigidas pelo host. A automação é uma escolha por sala, não
--- uma mudança de comportamento que chega junto com o deploy.
+-- `auto_mode` nasce TRUE: a automação é o caminho padrão e assumir o controle é
+-- que é a exceção. O host desliga quando quiser, pelo endpoint `/cadencia`.
+--
+-- Ligado não significa correndo: `stage_started_at` nasce NULO, e a regra NÃO
+-- abre voto sobre etapa sem hora de início (ver `services/cadencia.py`). O
+-- relógio só começa quando a etapa for posta -- à mão ou pela própria cadência.
+-- Uma sala que já existia, portanto, não muda de comportamento no instante em
+-- que esta coluna aparece; ela passa a avançar sozinha a partir da próxima
+-- etapa, que é o que se quer.
 ALTER TABLE video_room_openpbl_class
-  ADD COLUMN IF NOT EXISTS auto_mode BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS auto_mode BOOLEAN NOT NULL DEFAULT true,
   -- Quando a etapa corrente começou. NULL = etapa posta antes de a cadência
   -- existir; a regra não inventa um começo e não abre voto sobre ela.
   ADD COLUMN IF NOT EXISTS stage_started_at TIMESTAMPTZ,

@@ -1271,11 +1271,45 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
             class-code foi para a esquerda; o ▶ é só do controlador, na direita). */}
         {pblActive && <ActivityBar stage={pblStage} head={curStep.head} />}
 
+        {/* A PERGUNTA DA CADÊNCIA, para a sala inteira. Fica fora do bloco do
+            host: quem vota é a turma, e o host vê o mesmo cartão para saber o
+            que está sendo perguntado (ele não vota -- tem o botão). */}
+        {pblActive && pblClass?.vote_ends_at && (
+          <CartaoDoVoto
+            roomId={roomId}
+            fechaEm={pblClass.vote_ends_at}
+            meuVoto={identity ? (pblClass.votes || {})[identity] : undefined}
+            votos={Object.keys(pblClass.votes || {}).length}
+            presentes={(pblRoster?.students || []).filter((x: any) => !x.is_staff).length}
+          />
+        )}
+
         {/* Canto superior direito: controles da chamada (antes eram uma pílula
             centralizada no rodapé), cronômetro/contagem e Encerrar sala. */}
         <div className="vr-header-right">
           {/* Sequenciador do facilitador (Encerrar Registro / ▶ / etc.) + toggle do
               gráfico — movidos do centro para a direita, junto dos controles. */}
+          {/* A CHAVE DA AUTOMAÇÃO. Automático é o padrão; este botão é o
+              freio de mão -- o host assume quando a cadência vai mal, sem
+              precisar de deploy. Só o controlador, como o resto do
+              sequenciador. */}
+          {pblHost && (amController || recorder) && pblActive && (
+            <button
+              className="vr-actbar-ghost"
+              data-auto={pblClass?.auto_mode !== false || undefined}
+              title={pblClass?.auto_mode !== false
+                ? "A sala está avançando sozinha. Clique para assumir o controle."
+                : "Você está conduzindo. Clique para devolver à condução automática."}
+              onClick={async () => {
+                try {
+                  setPblClass(await sdk.openpbl.setCadencia(
+                    roomId, pblClass?.auto_mode === false));
+                } catch { /* o estado volta no próximo polling */ }
+              }}
+            >
+              {pblClass?.auto_mode !== false ? "Automático" : "Manual"}
+            </button>
+          )}
           {pblHost && chartAvailable && (
             <button className="vr-actbar-ghost" onClick={() => setChartHidden((h) => !h)} title="Mostrar/ocultar o gráfico de riscos">
               {chartHidden ? "Mostrar gráfico" : "Ocultar gráfico"}
@@ -2189,6 +2223,88 @@ function TileComSinal() {
     <div className="vr-tile-sig">
       <ParticipantTile />
       <SignalBars participant={ref?.participant} />
+    </div>
+  );
+}
+
+/* ── Cadência: "podemos seguir?" ──────────────────────────────────────────────
+ *
+ * O cartão que substitui a pessoa perguntando "todo mundo terminou?". Aparece
+ * quando o tempo da etapa esgota e vale 15 segundos.
+ *
+ * ## Quem não vota conta como "não"
+ *
+ * Está escrito no cartão, e não só no servidor. Um voto cujo peso o eleitor
+ * desconhece não é um voto -- e aqui o silêncio é a opção MAIS forte: basta
+ * metade da turma não clicar para o encontro ficar onde está.
+ *
+ * ## O relógio é do SERVIDOR
+ *
+ * A contagem na tela desce a partir de `vote_ends_at`, que vem pronto. Contar
+ * 15 a partir do momento em que o cartão apareceu daria um prazo diferente
+ * para cada aluno, conforme a latência -- e quem recebesse o estado atrasado
+ * veria a janela fechar antes da conta dele acabar.
+ */
+function CartaoDoVoto({ roomId, fechaEm, meuVoto, votos, presentes }: {
+  roomId: string;
+  fechaEm: string;
+  meuVoto: boolean | undefined;
+  votos: number;
+  presentes: number;
+}) {
+  const sdk = useSDK();
+  const [enviando, setEnviando] = useState(false);
+  const [restam, setRestam] = useState(() =>
+    Math.max(0, Math.ceil((new Date(fechaEm).getTime() - Date.now()) / 1000)));
+
+  useEffect(() => {
+    const t = setInterval(() => {
+      setRestam(Math.max(0, Math.ceil((new Date(fechaEm).getTime() - Date.now()) / 1000)));
+    }, 250);
+    return () => clearInterval(t);
+  }, [fechaEm]);
+
+  if (restam <= 0) return null;
+
+  const votar = async (sim: boolean) => {
+    setEnviando(true);
+    /* Falhar em silêncio é aceitável AQUI, e só aqui: não votar já tem um
+       significado definido ("não"), então um erro de rede leva ao mesmo lugar
+       que o aluno teria chegado ficando quieto. Um alerta no meio da aula
+       custaria mais que o que informaria. */
+    try { await sdk.openpbl.votar(roomId, sim); } catch { /* vale como não */ }
+    setEnviando(false);
+  };
+
+  return (
+    <div className="vr-voto" role="dialog" aria-label="Podemos seguir?">
+      <div className="vr-voto__topo">
+        <span className="vr-voto__titulo">Podemos seguir?</span>
+        <span className="vr-voto__relogio" aria-live="off">{restam}s</span>
+      </div>
+
+      {meuVoto === undefined ? (
+        <>
+          <div className="vr-voto__botoes">
+            <button type="button" className="vr-voto__sim" disabled={enviando}
+                    onClick={() => votar(true)}>Sim, pode seguir</button>
+            <button type="button" className="vr-voto__nao" disabled={enviando}
+                    onClick={() => votar(false)}>Ainda não</button>
+          </div>
+          {/* O PESO DO SILÊNCIO, dito antes de o aluno decidir não clicar. */}
+          <p className="vr-voto__aviso">Quem não responder conta como “ainda não”.</p>
+        </>
+      ) : (
+        <p className="vr-voto__meu">
+          Você respondeu <strong>{meuVoto ? "sim" : "ainda não"}</strong>.
+          Aguardando a turma.
+        </p>
+      )}
+
+      {/* Progresso sem revelar o VOTO de ninguém: quantos responderam, não o
+          que cada um respondeu. Numa sala com câmera aberta, saber quem votou
+          não é anônimo -- saber o quê seria constrangimento. */}
+      <p className="vr-voto__placar">{votos} de {presentes} já responderam</p>
     </div>
   );
 }

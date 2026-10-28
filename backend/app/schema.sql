@@ -190,8 +190,10 @@ CREATE TABLE IF NOT EXISTS video_room_openpbl_class (
   code_hidden BOOLEAN NOT NULL DEFAULT false,   -- facilitador ocultou o class-code (migration 010)
   stage TEXT NOT NULL DEFAULT 'session_start',   -- sequenciador do ▶ (migrations 012/013)
   -- Cadência: a sala avança sozinha com o aval da turma (migration 018).
-  -- `auto_mode` nasce false — a automação é escolha por sala.
-  auto_mode BOOLEAN NOT NULL DEFAULT false,
+  -- `auto_mode` nasce TRUE: a automação é o padrão; assumir o controle é a
+  -- exceção. Ligado não é correndo — sem `stage_started_at` a regra não abre
+  -- voto nenhum.
+  auto_mode BOOLEAN NOT NULL DEFAULT true,
   stage_started_at TIMESTAMPTZ,
   vote_ends_at TIMESTAMPTZ,
   vote_stage TEXT,

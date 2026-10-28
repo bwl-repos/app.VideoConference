@@ -263,5 +263,71 @@ conferir("_require_host" in modo,
          "CONTROLE: e só o host liga/desliga")
 
 print()
+print("11) a automação é o caminho PADRÃO")
+print()
+
+MIG = (RAIZ / "app/migrations/018_openpbl_cadencia.sql").read_text(encoding="utf-8")
+SCHEMA = (RAIZ / "app/schema.sql").read_text(encoding="utf-8")
+conferir("auto_mode BOOLEAN NOT NULL DEFAULT true" in MIG,
+         "a migration cria `auto_mode` ligado",
+         "o encontro roda sozinho; assumir o controle é a exceção")
+conferir("auto_mode BOOLEAN NOT NULL DEFAULT true" in SCHEMA,
+         "e o schema base diz o mesmo",
+         "instalação nova e banco migrado têm de concordar")
+
+#: LIGADO NÃO É CORRENDO. Sem hora de início a regra não abre voto -- é o que
+#: impede uma sala existente de disparar uma votação no segundo em que a coluna
+#: aparece.
+conferir(decidir(est(comecou_em=None, auto=True),
+                 T0 + timedelta(days=1), TURMA).acao == "nada",
+         "CONTROLE: ligado + sem hora de início = nada acontece",
+         "a coluna aparecer não pode disparar voto em sala nenhuma")
+
+#: E sem a migration aplicada, a cadência não existe: o router lê `auto_mode`
+#: só quando a coluna está lá, e cai em desligado.
+conferir('"auto_mode" in row.keys() else False' in ROUTER,
+         "banco sem a migration = cadência desligada",
+         "falha para o lado seguro, não para o lado de avançar sozinho")
+
+print()
+print("12) a tela: a pergunta precisa chegar ao aluno")
+print()
+
+FRONT = (RAIZ.parent / "frontend/src/components/video/VideoRoom.tsx").read_text(encoding="utf-8")
+SDK = (RAIZ.parent / "frontend/src/lib/video-rooms-sdk.ts").read_text(encoding="utf-8")
+
+conferir("function CartaoDoVoto" in FRONT, "o cartão existe")
+conferir("<CartaoDoVoto" in FRONT,
+         "e alguém o RENDERIZA",
+         "um componente sem uso é o defeito inteiro de volta")
+conferir("pblClass?.vote_ends_at &&" in FRONT,
+         "aparece só quando há voto aberto")
+
+#: Fora do bloco do host: se estivesse dentro, só o facilitador veria a
+#: pergunta -- e a turma, que é quem vota, não.
+cartao = FRONT[FRONT.index("<CartaoDoVoto"):]
+cartao = cartao[:cartao.index("/>") + 2]
+conferir("pblHost" not in cartao,
+         "CONTROLE: e NÃO está condicionado a ser host",
+         "quem vota é a turma")
+
+conferir("setCadencia:" in SDK and "votar:" in SDK, "o SDK expõe as duas rotas")
+conferir("openpbl/cadencia" in SDK and "openpbl/voto" in SDK,
+         "apontando para os endpoints certos")
+conferir("sdk.openpbl.setCadencia(" in FRONT,
+         "o host tem a chave automático/manual na tela")
+
+#: O RELÓGIO É DO SERVIDOR. Contar 15 a partir da chegada do cartão daria um
+#: prazo diferente para cada aluno, conforme a latência.
+voto_comp = FRONT[FRONT.index("function CartaoDoVoto"):]
+voto_comp = voto_comp[:voto_comp.index("/* ── Avaliação de desempenho")]
+conferir("new Date(fechaEm).getTime()" in voto_comp,
+         "a contagem desce a partir de `vote_ends_at`",
+         "e não de 15 contados na chegada do cartão")
+conferir("conta como" in voto_comp,
+         "e o cartão DIZ que o silêncio conta como não",
+         "um voto cujo peso o eleitor desconhece não é voto")
+
+print()
 print("falhas: %d" % falhas)
 raise SystemExit(1 if falhas else 0)
