@@ -885,6 +885,12 @@ async def definir_modo(room_id: str, body: ModoDaCadencia,
     row = await _get_class(room_id)
     if not row:
         raise HTTPException(404, "aula OpenPBL não iniciada nesta sala")
+    # Banco sem a migration 018: a chave não tem onde gravar. 503 e não 500 --
+    # a causa é conhecida e o recado diz o que fazer, em vez de deixar o host
+    # clicando num interruptor que falha sem explicar por quê.
+    if "auto_mode" not in row.keys():
+        raise HTTPException(
+            503, "cadência indisponível: migration 018 não aplicada neste banco")
     await pool().execute(
         "UPDATE video_room_openpbl_class "
         "SET auto_mode=$2, stage_started_at=$3, vote_ends_at=NULL, vote_stage=NULL, "
@@ -945,11 +951,22 @@ async def set_stage(room_id: str, body: StageSet, user: CurrentUser = Depends(ge
     # MARCA O INÍCIO e descarta voto em curso. Sem isso, o host avançando à mão
     # deixaria a etapa nova com a hora da anterior -- e a cadência abriria um
     # voto imediatamente sobre algo que acabou de começar.
-    await pool().execute(
-        "UPDATE video_room_openpbl_class "
-        "SET stage=$2, stage_started_at=$3, vote_ends_at=NULL, vote_stage=NULL, "
-        "    votes='{}'::jsonb WHERE room_id=$1",
-        room_id, stage, datetime.now(timezone.utc))
+    #
+    # As migrations deste repositório são aplicadas À MÃO, então o código pode
+    # chegar ao servidor antes do schema. Este botão é ANTERIOR à cadência: se
+    # ele escrevesse as colunas novas sem conferir, um deploy sem a 018 tiraria
+    # do host o único controle que ele sempre teve. Avançar a etapa não depende
+    # da cadência, e aqui não passa a depender.
+    if "auto_mode" in row.keys():
+        await pool().execute(
+            "UPDATE video_room_openpbl_class "
+            "SET stage=$2, stage_started_at=$3, vote_ends_at=NULL, vote_stage=NULL, "
+            "    votes='{}'::jsonb WHERE room_id=$1",
+            room_id, stage, datetime.now(timezone.utc))
+    else:
+        await pool().execute(
+            "UPDATE video_room_openpbl_class SET stage=$2 WHERE room_id=$1",
+            room_id, stage)
     row = await _get_class(room_id)
     state = _row_to_state(row)
     await hub.broadcast(room_id, "openpbl-class", state)

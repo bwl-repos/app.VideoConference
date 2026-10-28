@@ -329,5 +329,67 @@ conferir("conta como" in voto_comp,
          "um voto cujo peso o eleitor desconhece não é voto")
 
 print()
+print("13) deploy sem a migration não tira nada do host")
+print()
+
+#: As migrations deste repositório são aplicadas À MÃO: o código chega ao
+#: servidor por `publish.ps1`, que não roda SQL nenhum, e o `schema.sql` está
+#: montado em `docker-entrypoint-initdb.d`, que o Postgres só executa com o
+#: diretório de dados VAZIO. Num banco que já tem dados, ele é ignorado.
+#:
+#: Então existe uma janela -- de minutos ou de dias -- em que o código novo
+#: conversa com o schema antigo. A cadência ficar inerte nessa janela é o
+#: esperado. O que NÃO pode acontecer é o botão verde ▶, que é anterior a toda
+#: esta história, parar de funcionar porque passou a escrever colunas que ainda
+#: não existem: o host perderia o único controle que sempre teve, e perderia no
+#: meio de uma aula.
+
+
+def so_codigo(texto: str) -> str:
+    """O texto sem comentários: uma guarda explicada não é uma guarda."""
+    return "\n".join(l for l in texto.splitlines() if not l.lstrip().startswith("#"))
+
+
+def corpo(nome: str, ate: str) -> str:
+    t = ROUTER[ROUTER.index(nome):]
+    return so_codigo(t[:t.index(ate)])
+
+
+etapa = corpo('@router.post("/{room_id}/openpbl/stage")',
+              "# ── roster: status dos alunos")
+conferir('"auto_mode" in row.keys()' in etapa,
+         "avançar à mão confere se as colunas existem",
+         "o row já está em mãos; não custa uma consulta a mais")
+conferir("UPDATE video_room_openpbl_class SET stage=$2 WHERE room_id=$1" in etapa,
+         "e sem elas grava só a etapa",
+         "o botão do host não passa a depender da cadência")
+conferir("vote_ends_at=NULL" in etapa,
+         "CONTROLE: com elas, ainda descarta o voto em curso",
+         "senão a etapa nova nasceria com uma votação da anterior aberta")
+
+#: FALSIFICAÇÃO: a guarda só vale se houver DOIS caminhos. Um `if` cujos dois
+#: braços escrevem as colunas novas passaria nas três linhas acima.
+conferir(etapa.count("UPDATE video_room_openpbl_class") == 2,
+         "são dois caminhos de gravação, não um enfeitado",
+         "um `if` com o mesmo UPDATE nos dois braços não protegeria nada")
+
+modo_cod = corpo('@router.post("/{room_id}/openpbl/cadencia")',
+                 '@router.post("/{room_id}/openpbl/voto")')
+conferir('"auto_mode" not in row.keys()' in modo_cod and "503" in modo_cod,
+         "a chave da cadência recusa com 503 e diz o motivo",
+         "um 500 cru deixaria o host sem saber que falta a migration")
+
+#: Iniciar a aula também tem de funcionar na janela: o INSERT não nomeia as
+#: colunas novas, então vale nos dois schemas.
+inicio = corpo('@router.post("/{room_id}/openpbl/start")',
+               '@router.post("/{room_id}/openpbl/release')
+insert = inicio[inicio.index("INSERT INTO video_room_openpbl_class"):]
+insert = insert[:insert.index('"""', insert.index("ON CONFLICT"))]
+for col in ("auto_mode", "stage_started_at", "vote_ends_at", "vote_stage", "votes"):
+    conferir(col not in insert,
+             "iniciar aula não escreve `%s`" % col,
+             "nomeá-la quebraria o start num banco sem a 018")
+
+print()
 print("falhas: %d" % falhas)
 raise SystemExit(1 if falhas else 0)
