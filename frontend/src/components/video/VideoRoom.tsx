@@ -1271,6 +1271,23 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
             class-code foi para a esquerda; o ▶ é só do controlador, na direita). */}
         {pblActive && <ActivityBar stage={pblStage} head={curStep.head} />}
 
+        {/* PROGRESSO: só nas etapas em que a turma está respondendo algo. Fora
+            delas o número não significa nada e só ocuparia a tela. */}
+        {pblActive && pblStage === "release_risks" && (
+          <ProgressoDasRespostas
+            feitos={pblRoster?.progresso?.riscos ?? 0}
+            total={pblRoster?.progresso?.alunos ?? 0}
+            oque="responderam os riscos"
+          />
+        )}
+        {pblActive && pblStage === "release_feedback" && (
+          <ProgressoDasRespostas
+            feitos={pblRoster?.progresso?.pares ?? 0}
+            total={pblRoster?.progresso?.alunos ?? 0}
+            oque="avaliaram os colegas"
+          />
+        )}
+
         {/* A PERGUNTA DA CADÊNCIA, para a sala inteira. Fica fora do bloco do
             host: quem vota é a turma, e o host vê o mesmo cartão para saber o
             que está sendo perguntado (ele não vota -- tem o botão). */}
@@ -2223,6 +2240,41 @@ function TileComSinal() {
     <div className="vr-tile-sig">
       <ParticipantTile />
       <SignalBars participant={ref?.participant} />
+    </div>
+  );
+}
+
+/* ── Progresso das respostas ──────────────────────────────────────────────────
+ *
+ * Quantos da turma já responderam o Questionário de Riscos (etapa
+ * `release_risks`) e quantos já avaliaram os pares (`release_feedback`).
+ *
+ * ## Por que ele existe agora, e não antes
+ *
+ * Com um facilitador humano, "todo mundo terminou?" era uma pergunta que
+ * alguém fazia em voz alta. Com a cadência decidindo sozinha, esse número é o
+ * único sinal de que a sala está prestes a avançar com metade da turma pela
+ * metade -- e é por ele que quem supervisiona decide assumir o manual antes,
+ * em vez de descobrir depois.
+ *
+ * Aparece para TODOS, não só para o host: numa etapa com prazo, saber que
+ * faltam três pessoas é informação de quem está esperando, não privilégio de
+ * quem conduz.
+ */
+function ProgressoDasRespostas({ feitos, total, oque }: {
+  feitos: number; total: number; oque: string;
+}) {
+  // Sem alunos não há progresso a mostrar — e `0 de 0` com a barra cheia (ou
+  // vazia) afirmaria algo sobre uma turma que não existe.
+  if (!total) return null;
+  const pct = Math.round((feitos / total) * 100);
+  return (
+    <div className="vr-prog" title={`${feitos} de ${total} ${oque}`}>
+      <span className="vr-prog__rotulo">{oque}</span>
+      <span className="vr-prog__barra">
+        <i style={{ width: `${pct}%` }} data-cheio={feitos >= total || undefined} />
+      </span>
+      <span className="vr-prog__num">{feitos}/{total}</span>
     </div>
   );
 }

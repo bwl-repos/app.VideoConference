@@ -27,6 +27,11 @@ from ..config import settings
 from ..db import pool
 from ..realtime.hub import hub
 from ..services import cadencia
+from ..services.progresso import (
+    e_avaliacao_de_pares,
+    e_resposta_de_risco,
+    respondeu,
+)
 
 #: `bwl.cadencia` e nao o logger raiz: a cadencia decide sozinha e, quando
 #: alguem perguntar 'por que a aula avancou ali', a resposta tem de estar
@@ -1070,6 +1075,19 @@ async def class_roster(room_id: str, user: CurrentUser | None = Depends(optional
             "is_staff": is_staff,
             "in_package": (in_pkg.get(email, False) if not is_staff else None),
             "registered": (email in registered_emails) if (email and not is_staff) else False,
+            # PROGRESSO DAS RESPOSTAS, derivado dos MESMOS eventos que já foram
+            # buscados acima. Uma consulta a mais por aluno, numa sala com 30,
+            # seriam 30 chamadas ao LRS a cada 8 segundos.
+            #
+            # Serve a quem conduz: com a cadência decidindo sozinha, é por aqui
+            # que um humano vê se faz sentido assumir o manual antes de a sala
+            # avançar com metade da turma pela metade.
+            "respondeu_riscos": (
+                respondeu(by_student.get(email), since_iso, e_resposta_de_risco)
+                if (email and not is_staff) else None),
+            "avaliou_pares": (
+                respondeu(by_student.get(email), since_iso, e_avaliacao_de_pares)
+                if (email and not is_staff) else None),
         })
 
     out = {
@@ -1080,6 +1098,14 @@ async def class_roster(room_id: str, user: CurrentUser | None = Depends(optional
         "checking_open": cls["checking_open"] if cls else None,
         "code_hidden": cls["code_hidden"] if cls else False,
         "students": students,
+        # O RESUMO, pronto. A tela poderia contar, mas então cada cliente
+        # contaria do seu jeito -- e "12 de 30" na tela do host precisa ser o
+        # mesmo número que a cadência enxerga.
+        "progresso": {
+            "riscos": sum(1 for e in students if e.get("respondeu_riscos")),
+            "pares": sum(1 for e in students if e.get("avaliou_pares")),
+            "alunos": sum(1 for e in students if not e["is_staff"]),
+        },
     }
     _roster_cache[room_id] = (now, out)
     return out

@@ -1367,3 +1367,30 @@ button.vr-seq-label:disabled { opacity: .6; cursor: default; }
    sozinha, neutra quando o host assumiu. A cor diz QUEM está dirigindo — e
    essa é a única coisa que o host precisa saber de relance. */
 .vr-actbar-ghost[data-auto] { border-color: rgba(34,197,94,.55); color: #86efac; }
+
+/* ── Progresso das respostas ────────────────────────────────────────────────
+ *
+ * Faixa discreta sob a barra da etapa. Não é um alerta: é um número que se
+ * consulta de relance, e que fica visível o tempo todo durante a etapa em que
+ * a turma responde.
+ */
+.vr-prog {
+  position: absolute; z-index: 5; left: 50%; transform: translateX(-50%); top: 52px;
+  display: flex; align-items: center; gap: 10px;
+  background: rgba(0,0,0,.42); border: 1px solid rgba(255,255,255,.1);
+  border-radius: 999px; padding: 5px 12px; backdrop-filter: blur(6px);
+  font-size: 12px; color: var(--vr-text-dim, #9aa4b2);
+}
+.vr-prog__barra {
+  position: relative; width: 120px; height: 5px; border-radius: 999px;
+  background: rgba(255,255,255,.14); overflow: hidden;
+}
+.vr-prog__barra > i {
+  position: absolute; inset: 0 auto 0 0; border-radius: 999px;
+  background: #0ea5e9; transition: width .4s ease;
+}
+/* Verde só quando a turma INTEIRA respondeu. É o único estado que muda a
+   decisão de quem supervisiona: abaixo disso, 29 de 30 e 3 de 30 pedem a mesma
+   coisa (esperar ou assumir), e duas cores diferentes sugeririam o contrário. */
+.vr-prog__barra > i[data-cheio] { background: #22c55e; }
+.vr-prog__num { font-variant-numeric: tabular-nums; font-weight: 700; color: inherit; }
