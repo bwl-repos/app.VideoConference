@@ -51,8 +51,13 @@ def so_codigo(texto: str) -> str:
     diz "`optional_user`, e não `_require_host`", e "nenhum rótulo de etapa"
     casou com o exemplo de frase dentro do próprio docstring.
 
-    O bloco de aspas triplas é cortado alternando: ímpar abre, par fecha. Basta
-    para este fonte, onde não há aspas triplas dentro de string.
+    O bloco de aspas triplas é cortado alternando: ímpar abre, par fecha.
+
+    CUIDADO ao reaproveitar: isto remove TODOS os blocos de tripla-quota, e em
+    muitos routers deste repositório o SQL mora exatamente num deles. A prova do
+    `_presentes` removeu só o PRIMEIRO bloco por esse motivo. Aqui dá para
+    remover todos porque nenhuma afirmação desta prova mede SQL embutido — as
+    consultas que ela olha estão em string de aspas simples.
     """
     sem_docstring: list[str] = []
     dentro = False
