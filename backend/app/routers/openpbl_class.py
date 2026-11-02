@@ -24,9 +24,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from ..auth import get_current_user, optional_user, CurrentUser
 from ..config import settings
-from ..db import pool, tem_coluna
+from ..db import pool, tem_coluna, tem_tabela
 from ..realtime.hub import hub
-from ..services import cadencia, sorteio
+from ..services import cadencia, comunicacoes, sorteio
 from ..services.livekit_service import list_participant_identities
 from ..services.progresso import (
     e_avaliacao_de_pares,
@@ -237,6 +237,35 @@ def _estado_da_cadencia(row) -> cadencia.Estado:
     )
 
 
+async def _registrar_comunicacao(room_id: str, evento, texto: str = "") -> None:
+    """Grava uma comunicação do facilitador no histórico do encontro.
+
+    `evento` é a tupla `(tipo, meta)` de `comunicacoes`, ou `None` — e `None`
+    não grava nada: decisão de "seguir como está" não é algo que alguém precise
+    ler.
+
+    INERTE sem a tabela, de propósito. Publicar não aplica migration, e isto é
+    chamado de dentro da cadência e do botão do host — caminhos que já existiam.
+    Um erro aqui levaria a cadência junto para entregar um histórico que ninguém
+    ainda pediu. É a mesma regra que a 018 ensinou: funcionalidade nova pode
+    nascer inerte, não pode levar a antiga.
+    """
+    if not evento:
+        return
+    if not await tem_tabela("video_room_comunicacoes"):
+        return
+    tipo, meta = evento
+    try:
+        await pool().execute(
+            "INSERT INTO video_room_comunicacoes (room_id, tipo, texto, meta) "
+            "VALUES ($1,$2,$3,$4::jsonb)",
+            room_id, tipo, texto, json.dumps(meta))
+    except Exception:
+        # Histórico é registro, não caminho crítico: a aula não para porque o
+        # INSERT falhou. O log acima já guardou a mesma decisão.
+        logger.exception("[comunicacoes] falha ao registrar %s na sala %s", tipo, room_id)
+
+
 async def _aplicar_cadencia(room_id: str, row):
     """Avalia a cadência e grava o que ela mandar. Devolve a linha corrente.
 
@@ -284,6 +313,8 @@ async def _aplicar_cadencia(room_id: str, row):
 
     logger.info("[cadencia] sala=%s %s (%s) %d/%d",
                 room_id, d.acao, d.porque, d.sim, d.total)
+    await _registrar_comunicacao(
+        room_id, comunicacoes.da_decisao(estado.stage, d.acao, d.proxima, d.sim, d.total))
     nova = await _get_class(room_id)
     if d.acao in ("abrir_voto", "avancar"):
         await hub.broadcast(room_id, "openpbl-class", _row_to_state(nova))
@@ -1064,10 +1095,43 @@ async def set_stage(room_id: str, body: StageSet, user: CurrentUser = Depends(ge
         await pool().execute(
             "UPDATE video_room_openpbl_class SET stage=$2 WHERE room_id=$1",
             room_id, stage)
+    # O freio de mão também é comunicação: quando o host avança à mão, a turma
+    # vê uma etapa mudar sem o voto que a cadência faria. Sem registrar, o
+    # histórico teria um buraco exatamente nos momentos em que alguém assumiu o
+    # controle -- que são os que mais interessam a quem supervisiona.
+    await _registrar_comunicacao(room_id, ("etapa_manual", {"stage": stage}))
+
     row = await _get_class(room_id)
     state = _row_to_state(row)
     await hub.broadcast(room_id, "openpbl-class", state)
     return state
+
+
+@router.get("/{room_id}/openpbl/comunicacoes")
+async def listar_comunicacoes(room_id: str, user: CurrentUser | None = Depends(optional_user)):
+    """O histórico do encontro, em ordem. Para TODO MUNDO, não só o host.
+
+    `optional_user`, e não `_require_host`: quem chegou atrasado é justamente
+    quem mais precisa ler o que já foi dito, e o aluno não tem outra forma de
+    saber. É também o que torna o facilitador automático auditável durante a
+    própria aula, em vez de só depois, no log.
+
+    Devolve lista vazia enquanto a tabela não existe — a tela some, não quebra.
+    """
+    if not await tem_tabela("video_room_comunicacoes"):
+        return {"comunicacoes": []}
+    linhas = await pool().fetch(
+        "SELECT at, tipo, texto, meta FROM video_room_comunicacoes "
+        "WHERE room_id=$1 ORDER BY at", room_id)
+    return {"comunicacoes": [
+        {
+            "at": l["at"].isoformat(),
+            "tipo": l["tipo"],
+            "texto": l["texto"] or "",
+            "meta": (json.loads(l["meta"]) if isinstance(l["meta"], str) else (l["meta"] or {})),
+        }
+        for l in linhas
+    ]}
 
 
 # ── roster: status dos alunos p/ as bordas dos tiles ──────────────────────

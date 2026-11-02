@@ -160,6 +160,19 @@ export interface BreakoutGroup {
    *  mostra o líder sem ter de procurá-lo entre os membros. */
   leader_name?: string;
 }
+/** Uma comunicação do facilitador, como o servidor a registrou.
+ *
+ *  `tipo` é o evento; `meta` leva as chaves das etapas e a contagem dos votos.
+ *  A FRASE é montada aqui, com os rótulos de `STEPS` — é por isso que o
+ *  servidor não a grava pronta. `texto` só vem preenchido no recado do host,
+ *  onde o conteúdo é o próprio dado. */
+export interface OpenPblComunicacao {
+  at: string;
+  tipo: "voto_aberto" | "avancou" | "estendeu" | "etapa_manual" | "recado";
+  texto: string;
+  meta: { stage?: string; proxima?: string; sim?: number; total?: number };
+}
+
 export interface BreakoutState {
   open: boolean;
   ends_at: string | null;
@@ -353,6 +366,15 @@ export function createVideoRoomsSDK(opts: SDKOptions) {
       roster: (roomId: string) =>
         call<{ code: string | null; activity_id: string | null; facilitator_email: string | null; facilitator_name: string | null; checking_open: boolean | null; code_hidden: boolean; students: OpenPblRosterEntry[] }>(
           `/api/rooms/${roomId}/openpbl/roster`),
+      /** O histórico das comunicações do facilitador, em ordem.
+       *
+       *  Público — quem chegou atrasado é quem mais precisa ler o que já foi
+       *  dito. Devolve o EVENTO (`tipo` + `meta`), não a frase: os rótulos das
+       *  etapas vivem aqui, e uma segunda lista no servidor envelheceria calada.
+       *  Ver `backend/app/services/comunicacoes.py`. */
+      comunicacoes: (roomId: string) =>
+        call<{ comunicacoes: OpenPblComunicacao[] }>(
+          `/api/rooms/${roomId}/openpbl/comunicacoes`),
       /** Facilitador oculta/reexibe o card do class-code para todos. */
       setCodeVisible: (roomId: string, hidden: boolean) =>
         call<OpenPblClass>(`/api/rooms/${roomId}/openpbl/code-visibility`, {

@@ -44,3 +44,19 @@ async def tem_coluna(tabela: str, coluna: str) -> bool:
             "SELECT 1 FROM information_schema.columns "
             "WHERE table_name=$1 AND column_name=$2", tabela, coluna))
     return _COLUNAS[chave]
+
+
+_TABELAS: dict[str, bool] = {}
+
+
+async def tem_tabela(tabela: str) -> bool:
+    """A tabela existe no banco AGORA? Mesma razao de `tem_coluna`.
+
+    Publicar nao aplica migration, entao todo caminho que ja existia e passou a
+    gravar numa tabela NOVA pergunta aqui antes -- senao a funcionalidade nova
+    leva a antiga junto na janela entre o deploy e o `.sql`.
+    """
+    if tabela not in _TABELAS:
+        _TABELAS[tabela] = bool(await pool().fetchval(
+            "SELECT 1 FROM information_schema.tables WHERE table_name=$1", tabela))
+    return _TABELAS[tabela]

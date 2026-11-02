@@ -11,7 +11,7 @@ import "../../styles/room.css";
 import { useSDK } from "../../lib/sdk-context";
 import { guestAuth } from "../../lib/guest-auth";
 import { applyBranding, type Branding } from "../../lib/branding";
-import type { BreakoutState, BreakoutGroup, OpenPblStage, RoteiroSnapshot, RoteiroBlocoFixo } from "../../lib/video-rooms-sdk";
+import type { BreakoutState, BreakoutGroup, OpenPblComunicacao, OpenPblStage, RoteiroSnapshot, RoteiroBlocoFixo } from "../../lib/video-rooms-sdk";
 import RoomChat from "./RoomChat";
 import LobbyPanel from "./LobbyPanel";
 import RemoteControlEnforcer from "./RemoteControlEnforcer";
@@ -696,6 +696,12 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
   const [confirmEnd, setConfirmEnd] = useState(false);
   const [scorm, setScorm] = useState(false);
   const [pblRoster, setPblRoster] = useState<any | null>(null);   // status dos alunos (OpenPBL)
+  // Histórico das comunicações do facilitador + se o painel está aberto. Nasce
+  // FECHADO: numa sala de vídeo a lista compete com as câmeras, e quem precisa
+  // dela é quem chegou atrasado ou está supervisionando — não todo mundo, o
+  // tempo todo. O contador no botão é o que avisa que há algo a ler.
+  const [comunicacoes, setComunicacoes] = useState<OpenPblComunicacao[]>([]);
+  const [histAberto, setHistAberto] = useState(false);
   const [plenaryQ, setPlenaryQ] = useState<{ list: string[]; total: number } | null>(null); // questões da plenária reveladas até agora (recebidas pelo aluno via dados)
   const [clock, setClock] = useState("");   // horário (HH:MM) mostrado ao lado do class-code no header do facilitador
   const [showBoard, setShowBoard] = useState(false);
@@ -792,6 +798,26 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
     const load = () => sdk.openpbl.roster(roomId).then(setPblRoster).catch(() => {});
     load();
     const iv = setInterval(load, 10000);
+    const off = sdk.subscribe(roomId, (event) => { if (event === "openpbl-class") load(); });
+    return () => { clearInterval(iv); off(); };
+  }, [scorm, roomId]);
+
+  // OpenPBL: HISTÓRICO das comunicações do facilitador.
+  //
+  // Recarrega em `openpbl-class` além do intervalo: toda comunicação nasce de
+  // uma mudança de etapa ou de voto, e é esse o evento que a sala transmite.
+  // Sem isso, o que o facilitador acabou de dizer levaria até 20s para aparecer
+  // na lista de quem está lendo.
+  //
+  // Intervalo mais folgado que o do roster: o histórico só CRESCE, e um atraso
+  // de meio minuto num registro não muda decisão nenhuma.
+  useEffect(() => {
+    if (!scorm) return;
+    const load = () => sdk.openpbl.comunicacoes(roomId)
+      .then((r) => setComunicacoes(r.comunicacoes || []))
+      .catch(() => {});   // servidor sem a migration 020: a lista fica vazia
+    load();
+    const iv = setInterval(load, 20000);
     const off = sdk.subscribe(roomId, (event) => { if (event === "openpbl-class") load(); });
     return () => { clearInterval(iv); off(); };
   }, [scorm, roomId]);
@@ -1296,6 +1322,16 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
             feitos={pblRoster?.progresso?.pares ?? 0}
             total={pblRoster?.progresso?.alunos ?? 0}
             oque="avaliaram os colegas"
+          />
+        )}
+
+        {/* O HISTÓRICO, para a sala inteira. Fechado por padrão; o contador no
+            botão é o que avisa que há algo a ler. */}
+        {pblActive && (
+          <HistoricoDasComunicacoes
+            itens={comunicacoes}
+            aberto={histAberto}
+            onAlternar={() => setHistAberto((v) => !v)}
           />
         )}
 
@@ -2292,6 +2328,79 @@ function ProgressoDasRespostas({ feitos, total, oque }: {
         <i style={{ width: `${pct}%` }} data-cheio={feitos >= total || undefined} />
       </span>
       <span className="vr-prog__num">{feitos}/{total}</span>
+    </div>
+  );
+}
+
+/* ── Histórico das comunicações do facilitador ────────────────────────────────
+ *
+ * O que já foi dito no encontro, em ordem. Para TODO MUNDO: quem chegou
+ * atrasado é justamente quem mais precisa ler, e com um facilitador que não é
+ * gente não há a quem perguntar "o que eu perdi?".
+ *
+ * ## A FRASE é montada aqui, e é de propósito
+ *
+ * O servidor grava o EVENTO (`tipo` + `meta`) e não a sentença pronta. Os
+ * rótulos das etapas vivem neste arquivo (`STEPS`), onde elas são nomeadas e
+ * reordenadas; montar a frase no servidor exigiria uma segunda lista de nomes
+ * lá, que envelheceria calada na primeira vez que alguém renomeasse uma etapa.
+ *
+ * A consequência é boa: o histórico lê igual ao resto da tela, sempre. O dado
+ * fica congelado; a redação acompanha o produto.
+ */
+function frasePara(c: OpenPblComunicacao): string {
+  const etapa = (id?: string) => (id ? `“${stepDef(id as OpenPblStage).action}”` : "a etapa");
+  const placar = `${c.meta.sim ?? 0} de ${c.meta.total ?? 0}`;
+  switch (c.tipo) {
+    case "voto_aberto":
+      return `${etapa(c.meta.stage)} chegou ao fim — a turma foi consultada.`;
+    case "avancou":
+      return `A turma aprovou (${placar}): seguindo para ${etapa(c.meta.proxima)}.`;
+    case "estendeu":
+      // "pediu mais tempo" e não "recusou": quem não vota conta como não, então
+      // a maior parte dos `estendeu` é silêncio, não negativa. Chamar de recusa
+      // afirmaria uma intenção que ninguém manifestou.
+      return `A turma pediu mais tempo (${placar}) em ${etapa(c.meta.stage)}.`;
+    case "etapa_manual":
+      return `O facilitador avançou à mão para ${etapa(c.meta.stage)}.`;
+    case "recado":
+      return c.texto;
+    default:
+      // Tipo que esta versão da tela não conhece: mostra o que dá, em vez de
+      // sumir com a linha. Um histórico com buraco é pior do que um com uma
+      // linha crua -- e a prova confere que isto não deveria acontecer.
+      return c.texto || c.tipo;
+  }
+}
+
+function HistoricoDasComunicacoes({ itens, aberto, onAlternar }: {
+  itens: OpenPblComunicacao[]; aberto: boolean; onAlternar: () => void;
+}) {
+  // Sem nada registrado, nem o botão: um "Histórico (0)" convida ao clique e
+  // entrega uma lista vazia.
+  if (!itens.length) return null;
+  const hora = (iso: string) => {
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime())
+      ? "" : d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  };
+  return (
+    <div className="vr-hist">
+      <button type="button" className="vr-hist__botao" aria-expanded={aberto} onClick={onAlternar}>
+        Histórico ({itens.length})
+      </button>
+      {aberto && (
+        <ul className="vr-hist__lista">
+          {/* Do mais RECENTE para o mais antigo: o que acabou de acontecer é o
+              que se procura ao abrir, e numa aula longa a lista cresce. */}
+          {[...itens].reverse().map((c, i) => (
+            <li key={`${c.at}-${i}`} className="vr-hist__item">
+              <span className="vr-hist__hora">{hora(c.at)}</span>
+              <span className="vr-hist__texto">{frasePara(c)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
