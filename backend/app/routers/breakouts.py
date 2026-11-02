@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from ..auth import get_current_user, optional_user, CurrentUser
-from ..db import pool
+from ..db import pool, tem_coluna
 from ..realtime.hub import hub
 from ..services.livekit_service import create_token
 from ..config import settings
@@ -54,16 +54,23 @@ async def _room_or_404(room_id: str):
 
 async def _state(room) -> dict:
     """Estado completo dos grupos (usado pelo GET e nos broadcasts)."""
+    # `leader_identity` entra na projeção só quando existe: publicar não aplica
+    # migration, e esta função alimenta a tela de grupos inteira — pedir uma
+    # coluna ausente aqui apagaria os grupos da tela para entregar um líder.
+    tem_lider = await tem_coluna("video_breakout_groups", "leader_identity")
+    colunas = "id, name, room_name, position" + (", leader_identity" if tem_lider else "")
     groups = await pool().fetch(
-        "SELECT id, name, room_name, position FROM video_breakout_groups "
+        f"SELECT {colunas} FROM video_breakout_groups "
         "WHERE parent_room_id=$1 ORDER BY position", room["id"])
     assigns = await pool().fetch(
         "SELECT group_id, identity, display_name FROM video_breakout_assignments "
         "WHERE parent_room_id=$1", room["id"])
     by_group: dict[str, list] = {}
+    nome_de: dict[str, str] = {}
     for a in assigns:
         by_group.setdefault(str(a["group_id"]), []).append(
             {"identity": a["identity"], "display_name": a["display_name"]})
+        nome_de[a["identity"]] = a["display_name"] or ""
     return {
         "open": room["breakout_open"],
         "ends_at": room["breakout_ends_at"].isoformat() if room["breakout_ends_at"] else None,
@@ -75,6 +82,12 @@ async def _state(room) -> dict:
                 "room_name": g["room_name"],
                 "position": g["position"],
                 "members": by_group.get(str(g["id"]), []),
+                # Identidade E nome: a tela marca o líder na lista pela
+                # identidade, e o cartão do grupo mostra o nome sem precisar
+                # procurar entre os membros.
+                "leader_identity": (g["leader_identity"] if tem_lider else None),
+                "leader_name": (nome_de.get(g["leader_identity"] or "", "")
+                                if tem_lider else ""),
             }
             for g in groups
         ],

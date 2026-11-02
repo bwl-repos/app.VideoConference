@@ -24,9 +24,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from ..auth import get_current_user, optional_user, CurrentUser
 from ..config import settings
-from ..db import pool
+from ..db import pool, tem_coluna
 from ..realtime.hub import hub
-from ..services import cadencia
+from ..services import cadencia, sorteio
 from ..services.livekit_service import list_participant_identities
 from ..services.progresso import (
     e_avaliacao_de_pares,
@@ -640,6 +640,7 @@ async def _sync_openpbl_groups(room_id: str, cls) -> int:
     # Recria do zero (mesma semântica do create_breakouts). Fecha se estava aberto.
     if room["breakout_open"]:
         await hub.broadcast(room_id, "breakout-close", {"room_id": room_id})
+    anteriores = await _lideres_atuais(room_id)
     await pool().execute("DELETE FROM video_breakout_groups WHERE parent_room_id=$1", room_id)
     await pool().execute(
         "UPDATE video_rooms SET breakout_open=false, breakout_ends_at=NULL, breakout_mode='manual' WHERE id=$1",
@@ -661,19 +662,82 @@ async def _sync_openpbl_groups(room_id: str, cls) -> int:
                 "SET group_id=EXCLUDED.group_id, display_name=EXCLUDED.display_name",
                 room_id, str(gid), hit[0], (aluno.get("Name") or hit[1]))
 
+    await _sortear_lideres(room_id, anteriores)
     await _broadcast_breakout_state(room_id)
     return len(groups)
+
+
+async def _lideres_atuais(room_id: str) -> dict[str, str | None]:
+    """{nome do grupo: identidade de quem lidera}, para preservar no resorteio.
+
+    Vazio quando a coluna ainda não existe — e aí `sortear` recebe `anterior`
+    nulo e sorteia, que é o comportamento certo para a primeira vez.
+    """
+    if not await tem_coluna("video_breakout_groups", "leader_identity"):
+        return {}
+    linhas = await pool().fetch(
+        "SELECT name, leader_identity FROM video_breakout_groups WHERE parent_room_id=$1",
+        room_id)
+    return {l["name"]: l["leader_identity"] for l in linhas}
+
+
+async def _sortear_lideres(room_id: str, anteriores: dict[str, str | None] | None = None) -> None:
+    """Sorteia o líder de cada grupo e GRAVA.
+
+    INERTE sem a coluna, de propósito. Publicar não aplica migration, e esta
+    função é chamada de dentro da divisão de grupos — que é caminho antigo. Um
+    `UndefinedColumnError` aqui levaria embora a divisão inteira, que funciona
+    desde sempre, para entregar um líder que ninguém ainda pediu. Funcionalidade
+    nova pode nascer inerte; não pode levar a antiga junto.
+    """
+    if not await tem_coluna("video_breakout_groups", "leader_identity"):
+        logger.info("[sorteio] coluna leader_identity ausente; sorteio inerte "
+                    "(aplicar migrations/019_group_leader.sql)")
+        return
+
+    linhas = await pool().fetch(
+        "SELECT g.id, g.name, g.position, a.identity "
+        "FROM video_breakout_groups g "
+        "LEFT JOIN video_breakout_assignments a ON a.group_id = g.id "
+        "WHERE g.parent_room_id=$1 ORDER BY g.position", room_id)
+
+    membros: dict[str, list[str]] = {}
+    ids: dict[str, str] = {}
+    for r in linhas:
+        nome = r["name"]
+        ids[nome] = str(r["id"])
+        membros.setdefault(nome, [])
+        if r["identity"]:
+            membros[nome].append(r["identity"])
+
+    for nome, lider in sorteio.sortear_por_grupo(membros, anteriores).items():
+        await pool().execute(
+            "UPDATE video_breakout_groups SET leader_identity=$1 WHERE id=$2",
+            lider, ids[nome])
 
 
 async def _auto_group_breakouts(room_id: str) -> int:
     """Divide os alunos PRESENTES em grupos de vídeo: ninguém sozinho, no máximo
     6 grupos e no máximo 5 por grupo. Distribuição round-robin (equilibrada).
     Determinístico (ordem de entrada) — recria a configuração. Retorna nº de grupos."""
-    parts = await pool().fetch(
-        "SELECT p.user_id, p.display_name FROM video_room_participants p "
-        "JOIN video_rooms r ON r.id = p.room_id "
-        "WHERE p.room_id=$1 AND p.left_at IS NULL AND p.is_staff=false AND p.user_id <> r.owner_id "
-        "ORDER BY p.joined_at", room_id)
+    # QUEM ESTÁ NA SALA É O LIVEKIT QUE SABE. A tabela não serve para isso:
+    # nada fecha `left_at`, então `left_at IS NULL` quer dizer "já entrou nesta
+    # sala alguma vez", para sempre (ver `_presentes`). Sem este cruzamento uma
+    # sala reusada dividiria em grupos gente que foi embora no mês passado — e o
+    # líder sorteado poderia ser alguém que não está aqui, que é a forma mais
+    # visível de o defeito aparecer.
+    #
+    # A tabela continua entrando, mas só pelo que ela sabe de verdade: o nome
+    # para exibir e o papel (staff, dono da sala).
+    conectados = set(await _presentes(room_id))
+    parts = [
+        p for p in await pool().fetch(
+            "SELECT p.user_id, p.display_name FROM video_room_participants p "
+            "JOIN video_rooms r ON r.id = p.room_id "
+            "WHERE p.room_id=$1 AND p.is_staff=false AND p.user_id <> r.owner_id "
+            "ORDER BY p.joined_at", room_id)
+        if p["user_id"] in conectados
+    ]
     n = len(parts)
     if n < 1:
         return 0
@@ -693,6 +757,12 @@ async def _auto_group_breakouts(room_id: str) -> int:
         return 0
     if room["breakout_open"]:
         await hub.broadcast(room_id, "breakout-close", {"room_id": room_id})
+
+    # Quem liderava, ANTES de apagar os grupos. Chaveado pelo nome porque os ids
+    # morrem aqui: recriar reemitiria líderes novos e trocaria a liderança no
+    # meio do aquecimento por causa de um clique dado para outra coisa.
+    anteriores = await _lideres_atuais(room_id)
+
     await pool().execute("DELETE FROM video_breakout_groups WHERE parent_room_id=$1", room_id)
     await pool().execute(
         "UPDATE video_rooms SET breakout_open=false, breakout_ends_at=NULL, breakout_mode='manual' WHERE id=$1",
@@ -712,6 +782,7 @@ async def _auto_group_breakouts(room_id: str) -> int:
             "SET group_id=EXCLUDED.group_id, display_name=EXCLUDED.display_name",
             room_id, gids[idx % g], p["user_id"], p["display_name"] or "")
 
+    await _sortear_lideres(room_id, anteriores)
     await _broadcast_breakout_state(room_id)
     return g
 

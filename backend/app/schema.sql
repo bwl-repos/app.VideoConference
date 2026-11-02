@@ -160,6 +160,9 @@ CREATE TABLE IF NOT EXISTS video_breakout_groups (
   name TEXT NOT NULL,
   room_name TEXT NOT NULL,
   position INT NOT NULL DEFAULT 0,
+  -- Líder sorteado UMA vez e gravado (ver migrations/019 e services/sorteio.py).
+  -- Identidade, não nome: nome muda e dois alunos podem se chamar igual.
+  leader_identity TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_breakout_groups_room ON video_breakout_groups(parent_room_id);

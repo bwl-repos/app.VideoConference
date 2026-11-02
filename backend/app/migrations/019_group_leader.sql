@@ -1,0 +1,14 @@
+-- Líder do grupo, sorteado uma vez e GRAVADO.
+--
+-- Sortear na leitura daria um líder diferente a cada consulta, e a tela consulta
+-- em polling: cada aluno veria um nome, e todos mudariam a cada poucos segundos.
+-- Por isso a escolha vive numa coluna. Ver `backend/app/services/sorteio.py`.
+--
+-- Guarda a IDENTIDADE (a mesma de `video_breakout_assignments.identity`), não o
+-- nome: nome muda, e dois alunos podem se chamar igual. O nome para exibir sai
+-- do join com a atribuição.
+--
+-- Nasce NULL em todo grupo existente, e é o certo: ninguém foi sorteado nas
+-- turmas que já passaram, e inventar um líder retroativo seria afirmar que
+-- houve um.
+ALTER TABLE video_breakout_groups ADD COLUMN IF NOT EXISTS leader_identity TEXT;

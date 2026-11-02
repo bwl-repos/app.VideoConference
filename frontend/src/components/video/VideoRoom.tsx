@@ -21,15 +21,15 @@ const Whiteboard = lazy(() => import("./Whiteboard"));
 const BreakoutPanel = lazy(() => import("./BreakoutPanel"));
 
 /** Estado da troca de mídia quando o participante/host está dentro de um grupo. */
-interface BreakoutMedia { token: string; url: string; groupId: string; groupName: string; endsAt: string | null; }
+interface BreakoutMedia { token: string; url: string; groupId: string; groupName: string; endsAt: string | null; leaderName?: string; }
 /** Tudo que o RoomShell precisa para a UI de grupos. */
 interface BreakoutCtx {
-  active: { groupId: string; groupName: string; endsAt: string | null } | null;
+  active: { groupId: string; groupName: string; endsAt: string | null; leaderName?: string } | null;
   message: string | null;
   identity?: string;
   displayName?: string;
   isStaff: boolean;
-  enter: (g: { id: string; name: string }, endsAt: string | null) => void;
+  enter: (g: { id: string; name: string; leader_name?: string }, endsAt: string | null) => void;
   leave: () => void;
 }
 
@@ -150,13 +150,13 @@ export default function VideoRoom({ roomId, guestToken, speakerInviteId, display
   // nem falar com ninguém.
   const [boSeq, setBoSeq] = useState(0);
 
-  const enterBreakout = useCallback(async (group: { id: string; name: string }, endsAt: string | null) => {
+  const enterBreakout = useCallback(async (group: { id: string; name: string; leader_name?: string }, endsAt: string | null) => {
     if (!identity) return;
     try {
       const t = await sdk.breakouts.token(roomId, group.id, identity, displayName);
       swapAtRef.current = Date.now();
       setBoSeq((n) => n + 1);
-      setBreakout({ token: t.token, url: t.livekit_url, groupId: group.id, groupName: t.group_name, endsAt });
+      setBreakout({ token: t.token, url: t.livekit_url, groupId: group.id, groupName: t.group_name, endsAt, leaderName: group.leader_name || "" });
       setBoChoices(null);
     } catch (e) { console.error("breakout token", e); }
   }, [identity, roomId, displayName]);
@@ -315,7 +315,7 @@ export default function VideoRoom({ roomId, guestToken, speakerInviteId, display
   if (!boResolved) return <div className="vr-root"><div className="vr-center">Entrando…</div></div>;
 
   const boCtx: BreakoutCtx = {
-    active: breakout ? { groupId: breakout.groupId, groupName: breakout.groupName, endsAt: breakout.endsAt } : null,
+    active: breakout ? { groupId: breakout.groupId, groupName: breakout.groupName, endsAt: breakout.endsAt, leaderName: breakout.leaderName } : null,
     message: boMessage,
     identity: identity ?? undefined,
     displayName,
@@ -352,7 +352,7 @@ export default function VideoRoom({ roomId, guestToken, speakerInviteId, display
 }
 
 /* ---------------- Breakout: seletor (modo "os participantes escolhem") ------- */
-function BreakoutChooser({ groups, onPick }: { groups: BreakoutGroup[]; onPick: (g: { id: string; name: string }) => void }) {
+function BreakoutChooser({ groups, onPick }: { groups: BreakoutGroup[]; onPick: (g: { id: string; name: string; leader_name?: string }) => void }) {
   return (
     <div className="vr-bo-chooser">
       <div className="vr-bo-chooser-card">
@@ -360,9 +360,14 @@ function BreakoutChooser({ groups, onPick }: { groups: BreakoutGroup[]; onPick: 
         <p className="vr-sub">O anfitrião abriu os grupos. Selecione em qual você quer entrar.</p>
         <div className="vr-bo-chooser-list">
           {groups.map((g) => (
-            <button key={g.id} className="vr-bo-chooser-item" onClick={() => onPick({ id: g.id, name: g.name })}>
+            <button key={g.id} className="vr-bo-chooser-item" onClick={() => onPick({ id: g.id, name: g.name, leader_name: g.leader_name })}>
               <strong>{g.name}</strong>
-              <span>{g.members.length} {g.members.length === 1 ? "pessoa" : "pessoas"}</span>
+              <span>
+                {g.members.length} {g.members.length === 1 ? "pessoa" : "pessoas"}
+                {/* Só quando há líder. Servidor sem a migration 019 e grupo
+                    vazio devolvem nada, e aí não se afirma liderança nenhuma. */}
+                {g.leader_name ? ` • líder: ${g.leader_name}` : ""}
+              </span>
             </button>
           ))}
         </div>
@@ -372,7 +377,7 @@ function BreakoutChooser({ groups, onPick }: { groups: BreakoutGroup[]; onPick: 
 }
 
 /* ---------------- Breakout: banner (dentro de um grupo / aviso do host) ------ */
-function BreakoutBanner({ groupName, endsAt, message, onLeave }: { groupName: string | null; endsAt: string | null; message: string | null; onLeave: () => void }) {
+function BreakoutBanner({ groupName, leaderName, endsAt, message, onLeave }: { groupName: string | null; leaderName?: string; endsAt: string | null; message: string | null; onLeave: () => void }) {
   const [remain, setRemain] = useState<number | null>(null);
   useEffect(() => {
     if (!endsAt) { setRemain(null); return; }
@@ -393,7 +398,13 @@ function BreakoutBanner({ groupName, endsAt, message, onLeave }: { groupName: st
 
   return (
     <div className="vr-bo-banner">
-      <span>Você está no <b>{groupName}</b>{mmss ? ` • volta em ${mmss}` : ""}</span>
+      <span>
+        Você está no <b>{groupName}</b>
+        {/* Quem conduz o aquecimento. Só aparece quando há sorteio gravado:
+            grupo vazio, ou servidor sem a migration 019, não afirmam líder. */}
+        {leaderName ? <> • líder: <b>{leaderName}</b></> : null}
+        {mmss ? ` • volta em ${mmss}` : ""}
+      </span>
       <div className="vr-bo-banner-right">
         {message && <span className="vr-bo-banner-note">{message}</span>}
         <button className="vr-bo-banner-btn" onClick={onLeave}>Voltar à sala principal</button>
@@ -1391,6 +1402,7 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
         : (breakout.active || breakout.message) && (
           <BreakoutBanner
             groupName={breakout.active?.groupName ?? null}
+            leaderName={breakout.active?.leaderName}
             endsAt={breakout.active?.endsAt ?? null}
             message={breakout.message}
             onLeave={breakout.leave}

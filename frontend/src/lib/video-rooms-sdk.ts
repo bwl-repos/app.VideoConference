@@ -151,6 +151,14 @@ export interface BreakoutGroup {
   room_name: string;
   position: number;
   members: BreakoutMember[];
+  /** Quem lidera o grupo no aquecimento, sorteado UMA vez quando os grupos
+   *  nascem e gravado (ver `backend/app/services/sorteio.py`). Vem `null` em
+   *  grupo sem ninguém atribuído e em servidor anterior à migration 019 —
+   *  nos dois casos a tela não afirma líder nenhum. */
+  leader_identity?: string | null;
+  /** O nome de exibição de quem lidera, já resolvido pelo servidor: a tela
+   *  mostra o líder sem ter de procurá-lo entre os membros. */
+  leader_name?: string;
 }
 export interface BreakoutState {
   open: boolean;
