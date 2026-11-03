@@ -43,10 +43,21 @@ from datetime import datetime, timedelta
 #: `None`: elas dependem de uma ação humana ou externa, e um relógio correndo
 #: sobre elas apenas abriria votos que ninguém entende.
 DURACAO_DA_ETAPA: dict[str, int | None] = {
-    "session_start":      None,   # o host inicia
-    "registration_open":  None,   # espera os alunos entrarem
-    "amplify_code":       None,   # ação do host
-    "registration_close": None,   # ação do host
+    # ── A ABERTURA, que antes dependia do host ───────────────────────────────
+    #
+    # Estas quatro tinham duração `None`: "dependem de ação humana ou externa".
+    # Era verdade enquanto o facilitador era gente. Com a facilitação autônoma a
+    # consequência era uma sala que NUNCA começava — os alunos entravam e
+    # ficavam olhando as câmeras até alguém clicar no ▶.
+    #
+    # Agora elas correm sozinhas, e **sem voto** (ver `AVANCA_SOZINHA`):
+    # perguntar "podemos seguir?" numa sala que ainda está enchendo é perguntar
+    # a quem não chegou, e quem não vota conta como não — a sala nunca sairia
+    # do lugar.
+    "session_start":       60,    # 1 min para a turma ir chegando
+    "registration_open":   300,   # 5 min de registro de presença
+    "amplify_code":        30,    # o código grande na tela, para quem chegou atrasado
+    "registration_close":  30,    # fecha o registro e divide os grupos
     "synopsis":           300,    # 5 min revisitando a situação-problema
     "groups":             900,    # 15 min de aquecimento em grupo
     "plenary":            300,
@@ -67,6 +78,23 @@ ORDEM: tuple[str, ...] = (
     "synopsis", "groups", "plenary", "question", "situational",
     "release_risks", "show_chart", "closing", "release_feedback", "done",
 )
+
+#: As etapas que avançam SEM perguntar nada à turma.
+#:
+#: São as da abertura. Duas razões, e as duas vêm do mesmo lugar:
+#:
+#: 1. **Não há a quem perguntar.** Em `session_start` a sala está vazia ou quase;
+#:    `maioria` exige `total > 0`, e quem não vota conta como "não". Um voto ali
+#:    nunca passaria, e a sala ficaria presa na primeira etapa para sempre.
+#: 2. **Não é uma decisão da turma.** Abrir o registro e fechá-lo são atos do
+#:    encontro, não opiniões sobre ele. Perguntar "podemos fechar o registro?"
+#:    convida a uma resposta que ninguém tem como dar.
+#:
+#: A partir da situação-problema o voto volta a valer: aí sim o que está em jogo
+#: é se a turma terminou.
+AVANCA_SOZINHA: frozenset[str] = frozenset({
+    "session_start", "registration_open", "amplify_code", "registration_close",
+})
 
 #: Quanto tempo a turma tem para responder "pode seguir?".
 JANELA_DO_VOTO = timedelta(seconds=15)
@@ -218,6 +246,16 @@ def decidir(estado: Estado, agora: datetime, presentes: list[str]) -> Decisao:
         return Decisao("nada", porque="etapa sem hora de início")
     if agora - estado.comecou_em < timedelta(seconds=duracao):
         return Decisao("nada", porque="etapa ainda no tempo")
+
+    # ── ABERTURA: avança sem perguntar ──────────────────────────────────────
+    # Ver `AVANCA_SOZINHA`. Um voto aqui nunca passaria (sala vazia, e quem não
+    # vota conta como "não"), e a sala ficaria presa na primeira etapa.
+    if estado.stage in AVANCA_SOZINHA:
+        prox = proxima_etapa(estado.stage)
+        if prox is None:
+            return Decisao("nada", porque="não há etapa seguinte")
+        return Decisao("avancar", proxima=prox,
+                       porque="tempo da abertura esgotado (não se vota a abertura)")
 
     return Decisao("abrir_voto", voto_fecha_em=agora + JANELA_DO_VOTO,
                    porque="tempo da etapa esgotado")

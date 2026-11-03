@@ -1325,6 +1325,19 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
           />
         )}
 
+        {/* O RELÓGIO DA ETAPA, ao lado da atividade: é o que torna a cadência
+            visível antes de ela perguntar. Sem ele, "parada" e "contando" têm
+            a mesma aparência. */}
+        {pblActive && (
+          <RelogioDaEtapa
+            fimEm={pblClass?.stage_ends_at}
+            auto={!!pblClass?.auto_mode}
+            proxima={stepDef(
+              (STEP_IDS[Math.min(stepIndex(pblStage) + 1, STEP_IDS.length - 1)]) as OpenPblStage
+            ).action}
+          />
+        )}
+
         {/* O HISTÓRICO, para a sala inteira. Fechado por padrão; o contador no
             botão é o que avisa que há algo a ler. */}
         {pblActive && (
@@ -2328,6 +2341,57 @@ function ProgressoDasRespostas({ feitos, total, oque }: {
         <i style={{ width: `${pct}%` }} data-cheio={feitos >= total || undefined} />
       </span>
       <span className="vr-prog__num">{feitos}/{total}</span>
+    </div>
+  );
+}
+
+/* ── O relógio da etapa ───────────────────────────────────────────────────────
+ *
+ * Quanto falta na etapa corrente, e o que vem depois.
+ *
+ * ## Por que isto precisava existir
+ *
+ * A cadência era INVISÍVEL até o momento em que perguntava. Os alunos entravam,
+ * a sala ficava parada, e não havia como distinguir "está contando" de "está
+ * travada" — foi exatamente assim que a cadência passou dias ligada e parada em
+ * 97 salas sem ninguém notar.
+ *
+ * ## A conta desce de `stage_ends_at`, que vem pronto
+ *
+ * A DURAÇÃO de cada etapa mora em `cadencia.py`. Trazê-la para cá criaria uma
+ * segunda tabela, que divergiria no dia em que alguém ajustasse o ritmo do
+ * encontro — e esta barra prometeria um tempo que a cadência não cumpre.
+ *
+ * ## Some no modo manual, e quando não há relógio
+ *
+ * Com `auto` desligado não há contagem a fazer: o host dirige. E etapa sem
+ * relógio (ou que ainda não começou) não mostra zero — não mostra nada.
+ */
+function RelogioDaEtapa({ fimEm, auto, proxima }: {
+  fimEm: string | null | undefined; auto: boolean; proxima: string;
+}) {
+  const [resta, setResta] = useState<number | null>(null);
+  useEffect(() => {
+    if (!fimEm) { setResta(null); return; }
+    const fim = new Date(fimEm).getTime();
+    const tick = () => setResta(Math.max(0, Math.round((fim - Date.now()) / 1000)));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [fimEm]);
+
+  if (!auto || resta == null) return null;
+  const mmss = `${Math.floor(resta / 60)}:${String(resta % 60).padStart(2, "0")}`;
+  return (
+    <div className="vr-relogio" title={`Em seguida: ${proxima}`}>
+      <span className="vr-relogio__rotulo">
+        {/* Zero não é "acabou": é o instante em que a cadência age -- ou
+            perguntando à turma, ou avançando sozinha na abertura. Dizer
+            "seguindo..." evita o cronômetro parado em 0:00 parecer travado. */}
+        {resta > 0 ? "avança em" : "seguindo…"}
+      </span>
+      {resta > 0 && <span className="vr-relogio__tempo">{mmss}</span>}
+      <span className="vr-relogio__proxima">→ {proxima}</span>
     </div>
   );
 }

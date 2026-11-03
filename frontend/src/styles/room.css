@@ -1447,3 +1447,22 @@ button.vr-seq-label:disabled { opacity: .6; cursor: default; }
   color: #8a94a3;
 }
 .vr-hist__texto { flex: 1 1 auto; }
+
+/* ── O relogio da etapa ────────────────────────────────────────────────────── */
+
+.vr-relogio {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 10px;
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 999px;
+  background: rgba(255,255,255,.05);
+  font-size: 12px;
+  color: #cfd8e3;
+  white-space: nowrap;
+}
+.vr-relogio__rotulo { color: #8a94a3; }
+/* Tabular para o numero nao dancar a cada segundo. */
+.vr-relogio__tempo { font-variant-numeric: tabular-nums; font-weight: 700; color: #e8eef6; }
+.vr-relogio__proxima { color: #8a94a3; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }

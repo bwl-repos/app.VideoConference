@@ -81,11 +81,32 @@ conferir(d.acao == "abrir_voto", "no instante em que o tempo esgota, pergunta", 
 conferir(d.voto_fecha_em == T0 + timedelta(seconds=dur) + JANELA_DO_VOTO,
          "e a janela do voto é de 15 segundos", str(JANELA_DO_VOTO))
 
-#: Etapas de comando do host não têm relógio: um voto ali perguntaria "pode
-#: seguir?" sobre algo que depende de uma ação humana.
+#: A ABERTURA AVANCA SOZINHA, e sem voto.
+#:
+#: Estas quatro tinham relogio `None`: dependiam do host. A consequencia era uma
+#: sala que nunca comecava -- os alunos entravam e ficavam olhando as cameras.
+#:
+#: E avancam SEM perguntar: em `session_start` a sala esta vazia ou quase,
+#: `maioria` exige `total > 0` e quem nao vota conta como "nao". Um voto ali
+#: nunca passaria, e a sala ficaria presa na primeira etapa para sempre -- que e
+#: exatamente o defeito que esta mudanca conserta.
 for etapa in ("session_start", "registration_open", "amplify_code", "registration_close"):
-    d = decidir(est(stage=etapa, comecou_em=T0 - timedelta(hours=2)), T0, TURMA)
-    conferir(d.acao == "nada", "`%s` não tem relógio" % etapa, d.porque)
+    vencida = est(stage=etapa, comecou_em=T0 - timedelta(hours=2))
+    d = decidir(vencida, T0, TURMA)
+    conferir(d.acao == "avancar", "`%s` avanca sozinha quando o tempo acaba" % etapa, d.porque)
+    conferir(d.proxima == proxima_etapa(etapa), "e vai para a etapa seguinte", str(d.proxima))
+    # CONTROLE: a sala VAZIA tambem avanca. E o caso real -- ninguem chegou
+    # ainda --, e um voto aqui o deixaria preso para sempre.
+    conferir(decidir(vencida, T0, []).acao == "avancar",
+             "`%s` avanca mesmo com a sala vazia" % etapa)
+    # E DENTRO do tempo nao avanca nada.
+    conferir(decidir(est(stage=etapa, comecou_em=T0), T0, TURMA).acao == "nada",
+             "`%s` dentro do tempo nao mexe" % etapa)
+
+#: A partir da situacao-problema o voto VOLTA a valer: ai o que esta em jogo e
+#: se a turma terminou, e isso so a turma responde.
+d = decidir(est(stage="synopsis", comecou_em=T0 - timedelta(hours=2)), T0, TURMA)
+conferir(d.acao == "abrir_voto", "mas `synopsis` ainda PERGUNTA antes de avancar", d.porque)
 
 conferir(decidir(est(comecou_em=None), T0 + timedelta(hours=1), TURMA).acao == "nada",
          "sem hora de início, não inventa uma",
@@ -515,5 +536,45 @@ conferir('"na_sala": p["user_id"] in na_sala' in ROUTER
          "duas fontes de presença daria dois números na mesma tela")
 
 print()
+
+# ── O RELOGIO NA TELA, e o resgate das salas sem hora de inicio ──────────────
+#
+# A cadencia era INVISIVEL ate o momento em que perguntava: "parada" e
+# "contando" tinham a mesma aparencia. Foi assim que ela passou dias ligada e
+# parada em 97 salas sem ninguem notar.
+
+import io as _io
+from pathlib import Path as _Path
+
+_RAIZ = _Path(__file__).resolve().parent.parent
+_ROUTER = _io.open(_RAIZ / "app/routers/openpbl_class.py", encoding="utf-8").read()
+_FRONT = _io.open(_RAIZ.parent / "frontend/src/components/video/VideoRoom.tsx",
+                  encoding="utf-8").read()
+
+conferir('"stage_ends_at": _fim_da_etapa(row)' in _ROUTER,
+         "o estado manda QUANDO a etapa vence",
+         "pronto do servidor: a duracao mora em cadencia.py")
+conferir("DURACAO_DA_ETAPA" not in _FRONT,
+         "e a tela NAO tem uma segunda tabela de duracoes",
+         "duas tabelas divergem no dia em que alguem ajusta o ritmo")
+conferir("<RelogioDaEtapa" in _FRONT, "a tela renderiza o relogio")
+conferir("if (!auto || resta == null) return null" in _FRONT,
+         "CONTROLE: modo manual e etapa sem relogio nao mostram contagem",
+         "zero na tela pareceria travado")
+
+# O resgate: sem gravar a hora de inicio, a etapa nunca vence -- o relogio
+# recomecaria a cada consulta.
+conferir("SET stage_started_at=$2 WHERE room_id=$1" in _ROUTER,
+         "a sala sem hora de inicio ganha uma ao ser tocada",
+         "97 salas em producao estavam automaticas e paradas por falta dela")
+
+# O efeito de encerrar o registro acontece ANTES de a etapa mudar.
+_i = _ROUTER.find("_efetivar_encerramento_do_registro(room_id, row, estrito=False)")
+_j = _ROUTER.find("SET stage=$2, stage_started_at=$3", _i)
+conferir(_i != -1 and _j != -1 and _i < _j,
+         "encerrar o registro ACONTECE antes de a etapa avancar",
+         "trocar a string sem o efeito deixaria o registro aberto do outro lado")
+
+
 print("falhas: %d" % falhas)
 raise SystemExit(1 if falhas else 0)

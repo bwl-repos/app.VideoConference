@@ -103,6 +103,16 @@ export interface OpenPblClass {
    *  padrão; o host desliga quando quiser assumir. */
   auto_mode?: boolean;
   stage_started_at?: string | null;
+  /** Quando a etapa corrente VENCE, já calculado pelo servidor.
+   *
+   *  Pronto de lá porque a duração mora em `cadencia.py`: calcular aqui
+   *  criaria uma segunda tabela de durações, que divergiria no dia em que
+   *  alguém ajustasse o ritmo do encontro — e a tela prometeria um tempo que
+   *  a cadência não cumpre.
+   *
+   *  `null` = etapa sem relógio, ou que ainda não começou. Aí não se mostra
+   *  contagem nenhuma, em vez de mostrar zero. */
+  stage_ends_at?: string | null;
   /** Janela do voto "pode seguir?". `null` = não há pergunta aberta. */
   vote_ends_at?: string | null;
   vote_stage?: string | null;

@@ -110,6 +110,21 @@ async def _require_host(user: CurrentUser):
         raise HTTPException(403)
 
 
+def _fim_da_etapa(row) -> str | None:
+    """Quando a etapa corrente vence, em ISO — ou `None`.
+
+    `None` em três casos, e os três querem dizer "não há contagem a mostrar":
+    a sala não tem as colunas da cadência (banco sem a 018), a etapa não tem
+    relógio, ou ela ainda não começou.
+    """
+    if "stage_started_at" not in row or not row["stage_started_at"]:
+        return None
+    duracao = cadencia.DURACAO_DA_ETAPA.get(row["stage"])
+    if not duracao:
+        return None
+    return (row["stage_started_at"] + timedelta(seconds=duracao)).isoformat()
+
+
 def _row_to_state(row) -> dict:
     groups = row["group_codes"]
     if isinstance(groups, str):
@@ -135,6 +150,18 @@ def _row_to_state(row) -> dict:
         "auto_mode": bool(row["auto_mode"]) if "auto_mode" in row else False,
         "stage_started_at": (row["stage_started_at"].isoformat()
                              if "stage_started_at" in row and row["stage_started_at"] else None),
+        # QUANDO A ETAPA VENCE, já calculado. A tela desce a contagem a partir
+        # daqui, como já faz com `vote_ends_at`.
+        #
+        # Pronto do servidor porque a DURAÇÃO mora em `cadencia.py`: mandá-la
+        # para a tela calcular criaria uma segunda tabela de durações, que
+        # divergiria da primeira no dia em que alguém ajustasse o ritmo do
+        # encontro — e a tela passaria a prometer um tempo que não é o que a
+        # cadência cumpre.
+        #
+        # `None` quando a etapa não tem relógio ou ainda não começou, e aí a
+        # tela não mostra contagem nenhuma em vez de mostrar zero.
+        "stage_ends_at": _fim_da_etapa(row),
         "vote_ends_at": (row["vote_ends_at"].isoformat()
                          if "vote_ends_at" in row and row["vote_ends_at"] else None),
         "vote_stage": row["vote_stage"] if "vote_stage" in row else None,
@@ -280,6 +307,26 @@ async def _aplicar_cadencia(room_id: str, row):
         return row            # atalho: modo manual não lê presença nem grava
 
     agora = datetime.now(timezone.utc)
+
+    # ── RESGATE DAS SALAS SEM RELÓGIO ───────────────────────────────────────
+    #
+    # `stage_started_at` nasceu NULL em todas as salas quando a migration 018
+    # entrou, e o único jeito de marcá-lo era o host clicar no ▶. Medido em
+    # produção: 97 salas em modo automático, ZERO com relógio — ou seja, a
+    # cadência estava ligada e parada em todas.
+    #
+    # Marcar AGORA, na primeira vez que alguém mexe na sala, é o que a torna
+    # automática de verdade. E tem de ser aqui, e não em `decidir`: aquela
+    # função é pura e não escreve: sem gravar, o relógio recomeçaria a cada
+    # consulta e a etapa nunca venceria.
+    if estado.comecou_em is None:
+        await pool().execute(
+            "UPDATE video_room_openpbl_class SET stage_started_at=$2 WHERE room_id=$1",
+            room_id, agora)
+        logger.info("[cadencia] sala=%s relogio iniciado em %s", room_id, estado.stage)
+        row = await _get_class(room_id)
+        estado = _estado_da_cadencia(row)
+
     # A lista de presentes custa uma chamada ao LiveKit, e isto roda no polling
     # de todo mundo que está na aula. Só a apuração precisa dela -- quem decide
     # se é o caso é a própria regra, para a condição não viver em dois lugares.
@@ -293,6 +340,13 @@ async def _aplicar_cadencia(room_id: str, row):
             "SET vote_ends_at=$2, vote_stage=$3, votes='{}'::jsonb WHERE room_id=$1",
             room_id, d.voto_fecha_em, estado.stage)
     elif d.acao == "avancar":
+        # O EFEITO ANTES DA ETAPA. Encerrar o registro não é trocar uma string:
+        # é chamar o OpenPBL e dividir os grupos. Gravar a etapa primeiro e
+        # falhar no efeito deixaria a sala dizendo "registro encerrado" com o
+        # registro aberto do outro lado.
+        if estado.stage == "registration_close":
+            await _efetivar_encerramento_do_registro(room_id, row, estrito=False)
+
         await pool().execute(
             "UPDATE video_room_openpbl_class "
             "SET stage=$2, stage_started_at=$3, vote_ends_at=NULL, vote_stage=NULL, "
@@ -579,6 +633,46 @@ async def avaliar_desempenho(room_id: str, body: AvaliacaoDesempenho,
             "dimensions_id": dados.get("dimensions_id", "")}
 
 
+async def _efetivar_encerramento_do_registro(room_id: str, row, *, estrito: bool) -> None:
+    """O que encerrar o registro FAZ, além de mudar a etapa.
+
+    Extraído do endpoint porque a cadência passou a atravessar esta etapa
+    sozinha. Avançar a etapa é trocar uma string; encerrar o registro é chamar
+    o OpenPBL (`CloseChecking`) **e** dividir os grupos. Se a cadência só
+    trocasse a string, a sala entraria no aquecimento com o registro ABERTO do
+    outro lado e sem grupo nenhum formado — e nada acusaria, porque a tela
+    mostraria a etapa certa.
+
+    `estrito=True` é o botão do host: a falha vira 502 e ele vê. `estrito=False`
+    é a cadência: ela loga e segue, porque a automação não pode travar a aula
+    porque a integração não respondeu — o host ainda tem o botão para refazer.
+    """
+    base = settings.openpbl_integration_url.rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=20) as c:
+            r = await c.post(f"{base}/api/Presentation/CloseChecking",
+                             headers=_integration_headers(),
+                             json={"Code": row["presentation_code"],
+                                   "ActivityCourseId": row["activity_id"]})
+        if r.status_code != 200:
+            raise RuntimeError(f"CloseChecking devolveu {r.status_code}")
+    except Exception as exc:
+        if estrito:
+            raise HTTPException(502, f"OpenPBL CloseChecking falhou ({exc})")
+        logger.error("[cadencia] sala=%s CloseChecking falhou: %s", room_id, exc)
+
+    await pool().execute(
+        "UPDATE video_room_openpbl_class SET checking_open=false WHERE room_id=$1", room_id)
+
+    # Divide os alunos PRESENTES em grupos (ninguém sozinho, máx 6 grupos, máx 5
+    # por grupo). Best-effort nos dois modos: o registro já foi encerrado, e
+    # desfazer isso por causa da divisão seria pior.
+    try:
+        await _auto_group_breakouts(room_id)
+    except Exception:
+        logger.exception("[cadencia] sala=%s divisao de grupos falhou", room_id)
+
+
 @router.post("/{room_id}/openpbl/close-registration")
 async def close_registration(room_id: str, user: CurrentUser = Depends(get_current_user)):
     """Encerra o registro/presença — novos alunos não conseguem mais entrar."""
@@ -587,25 +681,7 @@ async def close_registration(room_id: str, user: CurrentUser = Depends(get_curre
     if not row:
         raise HTTPException(404, "aula OpenPBL não iniciada nesta sala")
 
-    base = settings.openpbl_integration_url.rstrip("/")
-    async with httpx.AsyncClient(timeout=20) as c:
-        r = await c.post(f"{base}/api/Presentation/CloseChecking",
-                         headers=_integration_headers(),
-                         json={"Code": row["presentation_code"],
-                               "ActivityCourseId": row["activity_id"]})
-        if r.status_code != 200:
-            raise HTTPException(502, f"OpenPBL CloseChecking falhou ({r.status_code})")
-
-    await pool().execute(
-        "UPDATE video_room_openpbl_class SET checking_open=false WHERE room_id=$1", room_id)
-
-    # Ao encerrar o registro, divide automaticamente os alunos presentes em grupos
-    # (ninguém sozinho, máx 6 grupos, máx 5 por grupo). Best-effort: não derruba o
-    # fechamento se algo falhar.
-    try:
-        await _auto_group_breakouts(room_id)
-    except Exception:
-        pass
+    await _efetivar_encerramento_do_registro(room_id, row, estrito=True)
 
     row = await _get_class(room_id)
     state = _row_to_state(row)
