@@ -825,6 +825,12 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
   // Auto-gera o class-code ao ENTRAR (host + sala vinculada a uma atividade OpenPBL),
   // como o pacote PRESENTATION fazia ao abrir — não depende de abrir a aba OpenPBL.
   const autoClassRef = useRef(false);
+  /* Por que a aula NAO comecou. Nulo = comecou, ou nem era uma aula.
+     O `catch` daqui era silencioso, e o preco apareceu em producao: a chamada
+     ao OpenPBL devolvia 502, a aula nunca nascia, e o host via apenas uma sala
+     que nao avancava -- sem etapa, sem codigo de turma, sem cronometro e sem
+     uma linha dizendo o que houve. */
+  const [falhaDaAula, setFalhaDaAula] = useState<string | null>(null);
   useEffect(() => {
     if (!scorm || !isStaff || autoClassRef.current) return;
     autoClassRef.current = true;
@@ -833,8 +839,14 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
         const st = await sdk.openpbl.classState(roomId);
         if (st.active) return;
         const r: any = await sdk.rooms.get(roomId);
-        if (r.openpbl_activity_id) await sdk.openpbl.startClass(roomId, r.openpbl_activity_id);
-      } catch { /* silencioso */ }
+        if (!r.openpbl_activity_id) return;   // sala sem episodio: reuniao comum
+        await sdk.openpbl.startClass(roomId, r.openpbl_activity_id);
+        setFalhaDaAula(null);
+      } catch (e: any) {
+        const detalhe = e?.response?.data?.detail || e?.message || "";
+        setFalhaDaAula(String(detalhe).slice(0, 300) || "erro desconhecido");
+        console.error("openpbl startClass", e);
+      }
     })();
   }, [scorm, isStaff, roomId]);
 
@@ -1323,6 +1335,14 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
             total={pblRoster?.progresso?.alunos ?? 0}
             oque="avaliaram os colegas"
           />
+        )}
+
+        {/* A AULA NAO COMECOU, e o host precisa saber POR QUE. So para quem
+            dirige: o aluno nao tem o que fazer com isso. */}
+        {isStaff && falhaDaAula && (
+          <span className="vr-falha-aula" title={falhaDaAula}>
+            ⚠ A aula não iniciou: {falhaDaAula}
+          </span>
         )}
 
         {/* O RELÓGIO DA ETAPA, ao lado da atividade: é o que torna a cadência

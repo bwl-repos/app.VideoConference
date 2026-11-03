@@ -1466,3 +1466,17 @@ button.vr-seq-label:disabled { opacity: .6; cursor: default; }
 /* Tabular para o numero nao dancar a cada segundo. */
 .vr-relogio__tempo { font-variant-numeric: tabular-nums; font-weight: 700; color: #e8eef6; }
 .vr-relogio__proxima { color: #8a94a3; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+
+/* O host precisa VER que a aula nao comecou -- antes isso era um catch vazio. */
+.vr-falha-aula {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(239,68,68,.15);
+  border: 1px solid rgba(239,68,68,.45);
+  color: #fecaca;
+  font-size: 12px;
+  max-width: 460px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

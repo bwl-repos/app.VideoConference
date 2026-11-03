@@ -407,7 +407,15 @@ async def start_class(room_id: str, body: ClassStart, user: CurrentUser = Depend
                           headers=headers,
                           json={"ActivityId": activity_id, "email": email})
         if r1.status_code != 200:
-            raise HTTPException(502, f"OpenPBL /api/Presentation falhou ({r1.status_code})")
+            # O CORPO ENTRA NO LOG, e não só o status. Um 502 que diz apenas
+            # "falhou (400)" não distingue atividade inexistente de payload
+            # recusado de chave inválida -- e, do lado da tela, o host via
+            # apenas uma sala que não avançava.
+            logger.error("[openpbl/start] sala=%s /api/Presentation %s: %s | enviado: "
+                         "ActivityId=%s email=%s",
+                         room_id, r1.status_code, r1.text[:400], activity_id, email)
+            raise HTTPException(
+                502, f"OpenPBL /api/Presentation falhou ({r1.status_code}): {r1.text[:200]}")
         code = r1.json() if r1.headers.get("content-type", "").startswith("application/json") else r1.text.strip('"')
         if not code or not isinstance(code, str):
             raise HTTPException(502, "OpenPBL não retornou o código da sessão")
@@ -418,7 +426,11 @@ async def start_class(room_id: str, body: ClassStart, user: CurrentUser = Depend
                           json={"name": user.name or "Facilitador", "email": email,
                                 "courseId": "", "presentationCode": code})
         if r2.status_code != 200:
-            raise HTTPException(502, f"OpenPBL /api/ClassCourse falhou ({r2.status_code})")
+            logger.error("[openpbl/start] sala=%s /api/ClassCourse %s: %s | enviado: "
+                         "presentationCode=%s email=%s",
+                         room_id, r2.status_code, r2.text[:400], code, email)
+            raise HTTPException(
+                502, f"OpenPBL /api/ClassCourse falhou ({r2.status_code}): {r2.text[:200]}")
         cc = r2.json() or {}
         ccid = cc.get("id")
         group_codes = [g.get("codigo") for g in (cc.get("classeRooms") or []) if g.get("codigo")]
