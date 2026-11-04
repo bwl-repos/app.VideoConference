@@ -784,6 +784,23 @@ for _bloco in ("RelogioDaEtapa", "ProgressoDasRespostas", "HistoricoDasComunicac
 conferir("vr-relogio__proxima" not in _FRONT_COD,
          "a pilula do relogio nao escreve a proxima etapa",
          "media 42px de cabecalho sem ela e 77px com ela, em 1440px")
+
+# O TITULO DA ETAPA NAO ENCOLHE NEM TRUNCA.
+#
+# Ele e o que diz em que ponto do encontro a sala esta; cortado em
+# "Situacao-probl..." deixa de informar, que e a unica funcao dele. Isto so e
+# seguro porque o cabecalho quebra -- com a grade anterior, encolher era
+# obrigatorio, e foi de la que a elipse veio.
+_i_nome = _CSS.index(".vr-actbar-name { font-size: 20px")
+_reg_nome = _CSS[_i_nome:_CSS.index("}", _i_nome)]
+conferir("text-overflow" not in _reg_nome,
+         "o titulo da etapa NAO e truncado por elipse",
+         "cortado, ele para de dizer onde a aula esta")
+_i_info = _CSS.index(".vr-actbar-info { display: flex")
+_reg_info = _CSS[_i_info:_CSS.index("}", _i_info)]
+conferir("flex: none" in _reg_info and "min-width: 168px" in _reg_info,
+         "e o bloco dele tem largura natural, sem encolher",
+         "com `width` + `min-width: 0` ele espremia e a elipse aparecia")
 conferir("Em seguida:" in _FRONT_COD,
          "CONTROLE: a proxima etapa continua existindo, no title",
          "tirar da tela nao pode ser tirar a informacao")

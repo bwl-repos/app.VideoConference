@@ -426,7 +426,9 @@
      (box-sizing) e ação encolhível para o ▶ nunca cortar na borda. */
   .vr-actbar { grid-column: 1; order: 3; justify-self: stretch; width: 100%; box-sizing: border-box; max-width: 100%; margin: 4px 0 0; padding: 8px 12px; flex-wrap: wrap; }
   .vr-actbar-info { min-width: 0; flex: 1 1 100%; }
-  .vr-actbar-name { font-size: 17px; }
+  /* Em tela estreita o titulo QUEBRA em vez de vazar. Quebrar preserva o
+     texto inteiro; truncar nao -- e e o texto que diz onde a aula esta. */
+  .vr-actbar-name { font-size: 17px; white-space: normal; }
   .vr-actbar-present { flex: 1 1 auto; min-width: 0; }
   .vr-actbar-next { flex: none; }
   .vr-actbar-seq { flex: 1 1 auto; min-width: 0; justify-content: center; }
@@ -901,14 +903,19 @@
   background: none; border: none; box-shadow: none;
 }
 .vr-actbar-name { text-align: center; }
-/* `width` em vez de `min-width`: mantém os 168px de sempre quando há espaço, e
-   permite ENCOLHER quando não há. Com o piso em 168px as três colunas da grade
-   não cabiam entre 768px e ~1000px e a barra transbordava por cima do bloco da
-   direita — medido no banco de prova do cabeçalho. */
-.vr-actbar-info { display: flex; flex-direction: column; line-height: 1.1; width: 168px; min-width: 0; }
+/* `flex: none` e `min-width`: o TÍTULO NÃO ENCOLHE. Ele é o que diz em que
+   ponto do encontro a sala está -- cortado em "Situação-probl…" deixa de
+   informar, e informar é a única função dele.
+
+   Isto só é seguro porque o cabeçalho quebra (`flex-wrap`): quando não há
+   espaço ao lado, a barra da etapa desce para a própria linha inteira em
+   vez de espremer o título. Era o encolhimento que a versão em grade
+   exigia, e a grade saiu. */
+.vr-actbar-info { display: flex; flex-direction: column; line-height: 1.1; min-width: 168px; flex: none; }
 /* Etapa atual em destaque: fonte bem maior que a antiga (14px). */
 .vr-actbar-name { font-size: 20px; font-weight: 800; letter-spacing: -.2px; color: var(--vr-text);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Uma linha, inteiro. Nada de `text-overflow: ellipsis` -- ver acima. */
+  white-space: nowrap; }
 /* Barrinha de progresso do sequenciador (preenche conforme avança). */
 .vr-actbar-prog { margin-top: 5px; height: 3px; border-radius: 3px; background: var(--vr-border); overflow: hidden; }
 .vr-actbar-prog i { display: block; height: 100%; border-radius: 3px; background: #22c55e; transition: width .3s ease; }

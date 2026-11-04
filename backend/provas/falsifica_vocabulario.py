@@ -80,6 +80,16 @@ ESTRAGOS = [
      "vivos = await list_participant_identities(await _nome_no_livekit(room_id))",
      "vivos = await list_participant_identities(room_id)"),
 
+    ("o titulo da etapa volta a ser truncado por elipse",
+     RAIZ.parent / "frontend/src/styles/room.css",
+     "  white-space: nowrap; }",
+     "  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }"),
+
+    ("o bloco do titulo volta a encolher",
+     RAIZ.parent / "frontend/src/styles/room.css",
+     "line-height: 1.1; min-width: 168px; flex: none; }",
+     "line-height: 1.1; width: 168px; min-width: 0; }"),
+
     ("a pilula do relogio volta a escrever a proxima etapa",
      FRONT,
      '{resta > 0 && <span className="vr-relogio__tempo">{mmss}</span>}',
