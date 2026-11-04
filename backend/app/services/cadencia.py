@@ -54,7 +54,14 @@ DURACAO_DA_ETAPA: dict[str, int | None] = {
     # perguntar "podemos seguir?" numa sala que ainda está enchendo é perguntar
     # a quem não chegou, e quem não vota conta como não — a sala nunca sairia
     # do lugar.
-    "session_start":       60,    # 1 min para a turma ir chegando
+    # 10 min até a aula começar sozinha. É o número do PRODUTO, não um palpite
+    # técnico: quem abre uma sala em modo automático combina com a turma um
+    # horário, e os retardatários precisam de folga para entrar antes de a
+    # abertura passar. Era 1 min, que na prática começava a aula com a sala
+    # vazia.
+    "session_start":      600,
+    # As três seguintes seguem como estavam: o relógio longo é só a espera
+    # inicial, não o ritmo do encontro.
     "registration_open":   300,   # 5 min de registro de presença
     "amplify_code":        30,    # o código grande na tela, para quem chegou atrasado
     "registration_close":  30,    # fecha o registro e divide os grupos

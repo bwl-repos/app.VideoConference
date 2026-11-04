@@ -576,5 +576,99 @@ conferir(_i != -1 and _j != -1 and _i < _j,
          "trocar a string sem o efeito deixaria o registro aberto do outro lado")
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# 16. O VOCABULARIO DE ETAPAS, QUE EM PRODUCAO NAO BATIA
+#
+# Em 04/11/2026 a sala nao comecava sozinha, e nao era a regra: o DEFAULT da
+# coluna `stage` em producao ainda era 'presentation' -- a migration 013, que o
+# trocava para 'session_start', nunca foi aplicada. Toda sala nova nascia numa
+# etapa fora do vocabulario da cadencia. Sem duracao nao ha `stage_ends_at`
+# (nenhum cronometro) e `decidir` nunca manda avancar: a sala fica no
+# automatico, parada, e de fora parece "esperando o facilitador".
+#
+# 43 das 99 salas estavam assim. O que segue e a guarda para isso nao voltar.
+# ═══════════════════════════════════════════════════════════════════════════
+import re as _re  # noqa: E402
+
+# -- 16.1 O valor de PRODUTO da espera inicial ------------------------------
+conferir(DURACAO_DA_ETAPA.get("session_start") == 600,
+         "a abertura espera 10 minutos antes de comecar sozinha",
+         "era 1 minuto: a aula comecava com a sala ainda vazia")
+
+# -- 16.2 Toda etapa do router tem duracao na cadencia -----------------------
+_sem_duracao = [e for e in ORDEM if e not in DURACAO_DA_ETAPA]
+conferir(not _sem_duracao,
+         "toda etapa da ORDEM tem entrada em DURACAO_DA_ETAPA",
+         f"sem entrada a sala para calada nessas: {_sem_duracao}")
+
+# -- 16.3 O DEFAULT do schema e uma etapa que a cadencia conhece -------------
+#
+# ESTA e a conferencia que teria pego o defeito. O schema e as migrations sao
+# lidos como texto: o que importa e o valor que uma linha nova recebe.
+_SCHEMA = (RAIZ / "app/schema.sql").read_text(encoding="utf-8")
+_m = _re.search(r"stage\s+TEXT\s+NOT\s+NULL\s+DEFAULT\s+'([^']+)'", _SCHEMA)
+conferir(_m is not None, "o schema declara um DEFAULT para `stage`")
+if _m:
+    conferir(_m.group(1) in DURACAO_DA_ETAPA,
+             f"o DEFAULT do schema ('{_m.group(1)}') e uma etapa conhecida",
+             "uma sala nova nascia em 'presentation', que nao tem duracao")
+
+# A ULTIMA migration que mexe no default tambem tem de deixar valor conhecido.
+_defaults = []
+for _arq in sorted((RAIZ / "app/migrations").glob("*.sql")):
+    for _v in _re.findall(r"(?i)ALTER\s+COLUMN\s+stage\s+SET\s+DEFAULT\s+'([^']+)'",
+                          _arq.read_text(encoding="utf-8")):
+        _defaults.append((_arq.name, _v))
+    for _v in _re.findall(r"(?i)stage\s+TEXT\s+NOT\s+NULL\s+DEFAULT\s+'([^']+)'",
+                          _arq.read_text(encoding="utf-8")):
+        _defaults.append((_arq.name, _v))
+conferir(bool(_defaults) and _defaults[-1][1] in DURACAO_DA_ETAPA,
+         "a ultima migration que define o default deixa uma etapa conhecida",
+         f"sequencia encontrada: {_defaults}")
+
+# -- 16.4 Etapa desconhecida NAO avanca, e e registrada ----------------------
+_aplicar = so_codigo(
+    _ROUTER[_ROUTER.index("async def _aplicar_cadencia"):
+            _ROUTER.index("async def _aplicar_cadencia") + 4000])
+conferir("if estado.stage not in cadencia.DURACAO_DA_ETAPA:" in _aplicar,
+         "a cadencia detecta etapa fora do vocabulario",
+         "sem isso a sala para sem deixar rastro")
+conferir("logger.warning(" in _aplicar,
+         "e deixa aviso no log quando detecta",
+         "o defeito ficou semanas invisivel por nao haver linha nenhuma")
+
+# CONTROLE: a deteccao nao pode NORMALIZAR a etapa. Rebobinar uma aula viva por
+# causa de um valor inesperado e pior do que ela nao andar.
+conferir('estado.stage = "session_start"' not in _aplicar
+         and "row['stage'] = 'session_start'" not in _aplicar,
+         "CONTROLE: a deteccao nao reescreve a etapa da sala",
+         "corrigir dado e tarefa de migration, nao do caminho de leitura")
+
+# -- 16.5 O frontend nao esconde mais a troca --------------------------------
+#
+# `so_codigo` tira comentario de Python; este arquivo e TypeScript, onde o
+# comentario e `//` e `/* */`. Sem tirar os dois, a prova casaria com a minha
+# PROPRIA explicacao em vez de com o codigo.
+def _so_codigo_ts(t: str) -> str:
+    t = _re.sub(r"/\*.*?\*/", "", t, flags=_re.S)
+    return "\n".join(l for l in t.splitlines() if not l.lstrip().startswith("//"))
+
+
+_FRONT_COD = _so_codigo_ts(_FRONT)
+conferir("const etapaDesconhecida" in _FRONT_COD,
+         "o frontend nomeia a etapa que nao reconhece",
+         "antes trocava por session_start em silencio e a tela parecia normal")
+conferir("isStaff && etapaDesconhecida" in _FRONT_COD,
+         "e avisa o host (so o host: o aluno nao tem acao possivel)")
+
+# -- 16.6 A camera do facilitador some no automatico -------------------------
+conferir("apenasFixada={!!pblClass?.auto_mode}" in _FRONT_COD,
+         "em modo automatico a coluna da esquerda nao traz o facilitador",
+         "no automatico nao ha facilitador conduzindo; o tile so rouba espaco")
+conferir("apenasFixada" in _FRONT_COD and "pinnedTrack" in _FRONT_COD,
+         "CONTROLE: a camera FIXADA continua valendo nos dois modos",
+         "some o fallback (host por ser host), nao a escolha explicita")
+
+
 print("falhas: %d" % falhas)
 raise SystemExit(1 if falhas else 0)

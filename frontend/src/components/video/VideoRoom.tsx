@@ -889,7 +889,19 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
     });
   }, [scorm, roomId]);
   const rawStage = pblClass?.stage as OpenPblStage;
-  const pblStage: OpenPblStage = STEP_IDS.includes(rawStage) ? rawStage : "session_start";
+  // A tela precisa de uma etapa conhecida para desenhar, então um valor que o
+  // frontend não reconhece cai em "session_start". Mas isso ESCONDE um defeito
+  // real: em 04/11/2026 o banco de produção servia `presentation` (a migration
+  // 013, que trocava o default, nunca foi aplicada), e a tela mostrava
+  // "Abertura" normalmente enquanto a cadência estava parada — a etapa não tem
+  // duração, então não havia nem cronômetro nem avanço. Pareceu "a sala está
+  // esperando o facilitador" por semanas.
+  //
+  // O desenho continua caindo para session_start; o que muda é que a troca
+  // deixa de ser silenciosa (ver `etapaDesconhecida`, avisada ao host).
+  const stageConhecida = !!rawStage && STEP_IDS.includes(rawStage);
+  const etapaDesconhecida = !!rawStage && !stageConhecida ? rawStage : null;
+  const pblStage: OpenPblStage = stageConhecida ? rawStage : "session_start";
   const curStep = stepDef(pblStage);
   // Visibilidade da ÁREA DE CONTEÚDO por etapa. Todo o conteúdo vem do ROTEIRO do
   // episódio e é renderizado nativamente — facilitador e aluno veem a MESMA tela:
@@ -1345,6 +1357,19 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
           </span>
         )}
 
+        {/* ETAPA QUE O FRONTEND NÃO CONHECE. Só o host vê: para o aluno não há
+            ação possível, e a tela já desenha a abertura. Para o host é o aviso
+            de que a sala NÃO vai andar sozinha — etapa fora do vocabulário não
+            tem duração, logo não tem relógio nem avanço, e o modo manual é a
+            saída até o schema ser corrigido. */}
+        {isStaff && etapaDesconhecida && (
+          <span className="vr-falha-aula"
+                title={`O banco respondeu "${etapaDesconhecida}", que não está na cadência. `
+                       + `A sala não avança sozinha; use o modo manual.`}>
+            ⚠ Etapa desconhecida: {etapaDesconhecida} — sem avanço automático
+          </span>
+        )}
+
         {/* O RELÓGIO DA ETAPA, ao lado da atividade: é o que torna a cadência
             visível antes de ela perguntar. Sem ele, "parada" e "contando" têm
             a mesma aparência. */}
@@ -1485,7 +1510,16 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
         {/* Durante os grupos, o facilitador NÃO vê a apresentação — só os grupos. */}
         {pblActive && !(amStaff && breakoutOpen) && (
           <aside className="vr-pbl-side">
-            <PblPanelHeader roster={pblRoster} localIsStaff={amStaff} localIdentity={identity} pinned={pinned} />
+            {/* A CÂMERA DO FACILITADOR SÓ NO MODO MANUAL. Em automático não há
+                facilitador conduzindo: a cadência conduz, e um tile de alguém
+                que não vai falar só rouba espaço do conteúdo.
+
+                `apenasFixada` em vez de não renderizar nada: fixar uma câmera
+                é uma escolha explícita de quem está na sala, e ela continua
+                valendo nos dois modos — some o FALLBACK (o host por ser host),
+                não a fixação. */}
+            <PblPanelHeader roster={pblRoster} localIsStaff={amStaff} localIdentity={identity}
+                            pinned={pinned} apenasFixada={!!pblClass?.auto_mode} />
             {amStaff ? (
               chartForStaff ? (
                 // "Liberar análise de riscos" em diante: SÓ o gráfico (ocultável).
@@ -2793,7 +2827,11 @@ function OpenPblStudentsGrid({ roomId, roster, localIsStaff, localIdentity, stri
 
 /** Header do painel (OpenPBL): câmera do facilitador destacada. O class-code saiu
  *  daqui e passou a viver ao lado da etapa atual (ver ClassCodeChip / popup). */
-function PblPanelHeader({ roster, localIsStaff, localIdentity, pinned }: { roster: any | null; localIsStaff: boolean; localIdentity?: string; pinned?: string | null }) {
+function PblPanelHeader({ roster, localIsStaff, localIdentity, pinned, apenasFixada }: {
+  roster: any | null; localIsStaff: boolean; localIdentity?: string; pinned?: string | null;
+  /** Em modo automático: mostra SÓ a câmera fixada, nunca o host por ser host. */
+  apenasFixada?: boolean;
+}) {
   const tracks = useTracks([{ source: Track.Source.Camera, withPlaceholder: true }], { onlySubscribed: false });
 
   const byId: Record<string, any> = {};
@@ -2806,7 +2844,9 @@ function PblPanelHeader({ roster, localIsStaff, localIdentity, pinned }: { roste
   // vazio do próprio gravador no lugar da câmera do facilitador.
   const pinnedTrack = pinned ? tracks.find((t) => t.participant.identity === pinned) : null;
   const hostTrack = pinnedTrack
-    || tracks.find((t) => !isEgress(t.participant.identity) && isHostTile(t.participant.identity));
+    || (apenasFixada
+        ? null      // modo automático: sem fixação, não há câmera nesta coluna
+        : tracks.find((t) => !isEgress(t.participant.identity) && isHostTile(t.participant.identity)));
 
   if (!hostTrack) return null;
   // Só o primeiro nome sobre a câmera — o nome completo continua no painel de

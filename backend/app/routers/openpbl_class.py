@@ -306,6 +306,24 @@ async def _aplicar_cadencia(room_id: str, row):
     if not estado.auto:
         return row            # atalho: modo manual não lê presença nem grava
 
+    # ETAPA QUE A CADÊNCIA NÃO CONHECE = SALA PARADA, E EM SILÊNCIO.
+    #
+    # Sem duração não há `stage_ends_at` (nada de relógio) e `decidir` nunca
+    # manda avançar. A sala fica ligada no automático sem andar, e de fora
+    # parece "esperando o facilitador".
+    #
+    # Aconteceu de verdade: a migration 013 nunca foi aplicada em produção, o
+    # DEFAULT da coluna seguiu `presentation`, e TODA sala nova nascia numa
+    # etapa fora do vocabulário — 43 salas quando foi medido em 04/11/2026.
+    # Não normalizo aqui de propósito: rebobinar uma aula viva por causa de um
+    # valor inesperado é pior que não andar. O log é o que torna o defeito
+    # achável, e o host vê o mesmo aviso na tela.
+    if estado.stage not in cadencia.DURACAO_DA_ETAPA:
+        logger.warning(
+            "[cadencia] sala=%s etapa '%s' fora do vocabulario: sem relogio e "
+            "sem avanco automatico (schema desatualizado?)", room_id, estado.stage)
+        return row
+
     agora = datetime.now(timezone.utc)
 
     # ── RESGATE DAS SALAS SEM RELÓGIO ───────────────────────────────────────
