@@ -60,6 +60,23 @@ ESTRAGOS = [
      FRONT,
      "const iv = setInterval(load, 10000);\n    const off = sdk.subscribe(roomId, (event, payload) => {",
      "const off = sdk.subscribe(roomId, (event, payload) => {"),
+
+    # O cabecalho: a etapa volta a flutuar por cima dos irmaos de fluxo.
+    ("a barra da etapa volta a ser absoluta",
+     RAIZ.parent / "frontend/src/styles/room.css",
+     ".vr-actbar {\n  display: flex;",
+     ".vr-actbar {\n  position: absolute; left: 50%; top: 50%;\n  display: flex;"),
+
+    ("o cabecalho deixa de ser grade de tres colunas",
+     RAIZ.parent / "frontend/src/styles/room.css",
+     "grid-template-columns: 1fr auto 1fr;",
+     "grid-template-columns: 1fr auto;"),
+
+    ("a pilula do relogio volta a escrever a proxima etapa",
+     FRONT,
+     '{resta > 0 && <span className="vr-relogio__tempo">{mmss}</span>}',
+     '{resta > 0 && <span className="vr-relogio__tempo">{mmss}</span>}\n'
+     '      <span className="vr-relogio__proxima">→ {proxima}</span>'),
 ]
 
 

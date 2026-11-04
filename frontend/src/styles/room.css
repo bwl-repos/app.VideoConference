@@ -30,17 +30,59 @@
 }
 
 /* ---------- Header ---------- */
+/* GRADE DE TRÊS COLUNAS, e a escolha é estrutural.
+
+   Antes: header em flex com o `.vr-actbar` em `position: absolute` centrado.
+   Como o absoluto não ocupa espaço no fluxo, TODO irmão de fluxo passava por
+   baixo dele. Em 04/11/2026 o cronômetro da etapa apareceu escrito por cima
+   de "Abertura"; o progresso, os avisos, o histórico e o cartão de voto
+   tinham o mesmo defeito, só que ninguém tinha visto ainda.
+
+   Com `1fr auto 1fr` a coluna do meio fica centrada na tela (as laterais
+   dividem o resto em partes iguais) E ocupa espaço de verdade. Sobreposição
+   deixa de ser questão de acertar margem: não há como acontecer.
+
+   `min-width: 0` nas laterais é o que permite elas encolherem em vez de
+   empurrar a do meio para fora. */
 .vr-header {
-  position: relative;   /* âncora p/ centralizar a etapa (vr-actbar) no header */
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
   padding: 6px 14px;
   gap: 12px;
 }
-/* Tudo (controles, cronômetro/contagem, Encerrar sala) no canto superior direito.
-   Sem `margin-left: auto`: o espaço livre é do .vr-actbar, que se centra nele. */
+.vr-brand { grid-column: 1; justify-self: start; min-width: 0; }
+.vr-actbar { grid-column: 2; justify-self: center; }
+/* UM ÚNICO filho na coluna 3. Estado da aula e controles ficam dentro dele:
+   dois filhos na mesma célula da grade se sobreporiam — que é o defeito que
+   esta grade existe para tornar impossível. */
+.vr-header-end {
+  grid-column: 3; justify-self: end; min-width: 0;
+  display: flex; align-items: center; justify-content: flex-end;
+  gap: 12px; flex-wrap: wrap;
+}
+.vr-header-status {
+  min-width: 0;
+  display: flex; align-items: center; justify-content: flex-end;
+  gap: 8px; flex-wrap: wrap;
+}
 .vr-header-right { display: flex; align-items: center; gap: 14px; flex: none; }
+
+/* O CABEÇALHO EMPILHA ANTES DO BREAKPOINT GERAL (768px), e por uma razão
+   medida: entre ~768px e ~1000px as três colunas ainda não cabem quando todos
+   os blocos de estado aparecem juntos. E o bloco da direita tem
+   `justify-self: end`, então, ao não caber, ele transborda PARA A ESQUERDA —
+   por cima da atividade. O transbordo lateral de um item de grade é
+   exatamente a sobreposição que a grade deveria ter eliminado.
+
+   Medido com `scratchpad/medir_cabecalho.py`, que carrega este arquivo e
+   compara os retângulos: 1024px passa, 860px não. */
+@media (max-width: 1000px) {
+  .vr-header { grid-template-columns: 1fr; }
+  .vr-brand { grid-column: 1; order: 1; justify-self: stretch; }
+  .vr-header-end { grid-column: 1; order: 2; justify-self: stretch; justify-content: space-between; }
+  .vr-actbar { grid-column: 1; order: 3; justify-self: stretch; }
+}
 .vr-brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .vr-logo {
   width: 28px; height: 28px; border-radius: 8px;
@@ -367,12 +409,16 @@
 @media (max-width: 768px) {
   /* Header compacto: marca + controles na 1ª linha; sequenciador na 2ª (largura
      total), sem estourar a tela. */
-  .vr-header { padding: 8px 10px; gap: 8px 10px; flex-wrap: wrap; overflow-x: hidden; }
-  .vr-brand { order: 1; flex: 1 1 auto; min-width: 0; }
+  /* Estreito: a grade vira UMA coluna e cada bloco ganha a sua linha, na ordem
+     marca → controles+estado → atividade. `order` continua valendo em grid;
+     `flex: 0 0 100%` não — por isso a largura vem de `justify-self: stretch`. */
+  .vr-header { grid-template-columns: 1fr; padding: 8px 10px; gap: 8px 10px; overflow-x: hidden; }
+  .vr-brand { grid-column: 1; order: 1; justify-self: stretch; min-width: 0; }
+  .vr-header-end { grid-column: 1; order: 2; justify-self: stretch; justify-content: space-between; }
   .vr-header-right { order: 2; }
   /* Sequenciador: info na 1ª linha, ação + ▶ na 2ª — largura travada no container
      (box-sizing) e ação encolhível para o ▶ nunca cortar na borda. */
-  .vr-actbar { position: static; transform: none; order: 3; flex: 0 0 100%; width: 100%; box-sizing: border-box; max-width: 100%; margin: 4px 0 0; padding: 8px 12px; flex-wrap: wrap; }
+  .vr-actbar { grid-column: 1; order: 3; justify-self: stretch; width: 100%; box-sizing: border-box; max-width: 100%; margin: 4px 0 0; padding: 8px 12px; flex-wrap: wrap; }
   .vr-actbar-info { min-width: 0; flex: 1 1 100%; }
   .vr-actbar-name { font-size: 17px; }
   .vr-actbar-present { flex: 1 1 auto; min-width: 0; }
@@ -839,16 +885,24 @@
 
 /* ===================== Barra "Atividade atual" + apresentação ===================== */
 /* Vive no header: `margin: 0 auto` a centra entre a marca e os controles. */
+/* SEM `position: absolute`. A centralização agora vem da coluna do meio da
+   grade do header (ver `.vr-header`), e por isso a barra ocupa espaço de
+   verdade — era o absoluto que deixava os irmãos de fluxo passarem por baixo
+   dela. `min-width: 0` para o título elipsar em vez de empurrar as laterais. */
 .vr-actbar {
-  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-  display: flex; align-items: center; gap: 12px; flex: none;
+  display: flex; align-items: center; gap: 12px; min-width: 0;
   margin: 0; padding: 0;
   background: none; border: none; box-shadow: none;
 }
 .vr-actbar-name { text-align: center; }
-.vr-actbar-info { display: flex; flex-direction: column; line-height: 1.1; min-width: 168px; }
+/* `width` em vez de `min-width`: mantém os 168px de sempre quando há espaço, e
+   permite ENCOLHER quando não há. Com o piso em 168px as três colunas da grade
+   não cabiam entre 768px e ~1000px e a barra transbordava por cima do bloco da
+   direita — medido no banco de prova do cabeçalho. */
+.vr-actbar-info { display: flex; flex-direction: column; line-height: 1.1; width: 168px; min-width: 0; }
 /* Etapa atual em destaque: fonte bem maior que a antiga (14px). */
-.vr-actbar-name { font-size: 20px; font-weight: 800; letter-spacing: -.2px; color: var(--vr-text); }
+.vr-actbar-name { font-size: 20px; font-weight: 800; letter-spacing: -.2px; color: var(--vr-text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Barrinha de progresso do sequenciador (preenche conforme avança). */
 .vr-actbar-prog { margin-top: 5px; height: 3px; border-radius: 3px; background: var(--vr-border); overflow: hidden; }
 .vr-actbar-prog i { display: block; height: 100%; border-radius: 3px; background: #22c55e; transition: width .3s ease; }
@@ -1452,6 +1506,7 @@ button.vr-seq-label:disabled { opacity: .6; cursor: default; }
 
 .vr-relogio {
   display: flex;
+  min-width: 0;
   align-items: baseline;
   gap: 6px;
   padding: 3px 10px;
@@ -1469,6 +1524,7 @@ button.vr-seq-label:disabled { opacity: .6; cursor: default; }
 
 /* O host precisa VER que a aula nao comecou -- antes isso era um catch vazio. */
 .vr-falha-aula {
+  min-width: 0;
   padding: 3px 10px;
   border-radius: 999px;
   background: rgba(239,68,68,.15);

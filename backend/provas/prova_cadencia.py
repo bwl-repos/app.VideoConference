@@ -706,5 +706,62 @@ conferir(_i_roster == -1 or not (_i < _i_roster < _i + 700),
          "senao o intervalo do roster faria a prova passar sozinho")
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# 18. O CABECALHO NAO PODE SE SOBREPOR
+#
+# O `.vr-actbar` (a etapa atual) era `position: absolute` centrado no header.
+# Absoluto nao ocupa espaco no fluxo, entao TODO irmao de fluxo passava por
+# baixo dele: o cronometro novo apareceu escrito por cima de "Abertura", e o
+# progresso, os avisos e o historico tinham o mesmo defeito ha mais tempo.
+#
+# Agora o header e uma grade de tres colunas e nada e absoluto. Esta secao e a
+# guarda BARATA (texto); a medida de verdade, que compara retangulos num
+# navegador, e `frontend/provas/medir_cabecalho.py`.
+#
+# `_so_codigo_ts` tambem serve para CSS: tira `/* */`. Sem isso a conferencia
+# casaria com a EXPLICACAO que cita `position: absolute` -- a prova mediria a
+# minha prosa, que ja aconteceu nesta base.
+# ═══════════════════════════════════════════════════════════════════════════
+_CSS = _so_codigo_ts(
+    (RAIZ.parent / "frontend/src/styles/room.css").read_text(encoding="utf-8"))
+
+# ANCORA NA REGRA BASE, nao na primeira `.vr-actbar {` do arquivo: ha tres
+# (a da grade, a do media query e a base), e ancorar na primeira media a regra
+# errada -- o falsificador pegou isto verde com o absoluto de volta.
+_j = _CSS.index(".vr-actbar {\n  display: flex;")
+_reg_actbar = _CSS[_j:_CSS.index("}", _j)]
+conferir("position:" not in _reg_actbar,
+         "a barra da etapa NAO e posicionada por absoluto",
+         "absoluto nao ocupa espaco, e os irmaos de fluxo ficam por baixo")
+conferir("grid-template-columns: 1fr auto 1fr" in _CSS,
+         "o cabecalho e uma grade de tres colunas",
+         "e o que centra a etapa SEM tirar ninguem do fluxo")
+conferir(".vr-header-end {" in _CSS and ".vr-header-status {" in _CSS,
+         "existe um unico filho na coluna da direita, com o estado dentro dele",
+         "dois filhos na mesma celula da grade voltariam a se sobrepor")
+
+# Os blocos de estado estao DENTRO do agrupador, nao soltos no header.
+_cab = _FRONT_COD[_FRONT_COD.index('<header className="vr-header">'):]
+_cab = _cab[:_cab.index("</header>")]
+_abre = _cab.index('className="vr-header-status"')
+# A fronteira e ESTRUTURAL, nao um comentario-marcador: `_so_codigo_ts` tira
+# comentario, entao `{/* /vr-header-status */}` nao existe no texto medido.
+# `.vr-header-status` fecha antes de `.vr-header-right` comecar.
+_fecha = _cab.index('className="vr-header-right"')
+for _bloco in ("RelogioDaEtapa", "ProgressoDasRespostas", "HistoricoDasComunicacoes"):
+    _p = _cab.find(_bloco)
+    conferir(_abre < _p < _fecha,
+             f"{_bloco} fica dentro de .vr-header-status",
+             "solto no header ele volta a disputar espaco com a etapa")
+
+# A proxima etapa saiu da pilula: era ela que dobrava a altura do cabecalho.
+conferir("vr-relogio__proxima" not in _FRONT_COD,
+         "a pilula do relogio nao escreve a proxima etapa",
+         "media 42px de cabecalho sem ela e 77px com ela, em 1440px")
+conferir("Em seguida:" in _FRONT_COD,
+         "CONTROLE: a proxima etapa continua existindo, no title",
+         "tirar da tela nao pode ser tirar a informacao")
+
+
 print("falhas: %d" % falhas)
 raise SystemExit(1 if falhas else 0)

@@ -1,0 +1,57 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Banco de prova do cabecalho da sala</title>
+<!--
+  Reproduz o CABECALHO da sala com o room.css de verdade, no pior caso: todos
+  os blocos de estado visiveis ao mesmo tempo (progresso, dois avisos,
+  cronometro, historico, cartao de voto) mais a marca e os controles.
+
+  Nao e uma tela bonita para olhar: e um alvo para medir caixas. O script
+  compara os retangulos de todos os blocos do cabecalho e acusa interseccao.
+-->
+<link rel="stylesheet" href="room.css">
+<style>
+  body { margin: 0; background: var(--vr-bg, #0b0d12); color: #e8eef6;
+         font: 14px system-ui, sans-serif; }
+</style>
+
+<header class="vr-header">
+  <div class="vr-brand">
+    <div class="vr-logo">B</div>
+    <div class="vr-title">15:16 | 4sgn1so</div>
+  </div>
+
+  <div class="vr-actbar">
+    <div class="vr-actbar-info">
+      <span class="vr-actbar-name">Abertura</span>
+      <div class="vr-actbar-prog"><i style="width:7%"></i></div>
+    </div>
+  </div>
+
+  <div class="vr-header-end">
+    <div class="vr-header-status">
+      <span class="vr-progresso">3 de 12 responderam os riscos</span>
+      <span class="vr-falha-aula">⚠ A aula não iniciou: 502 OpenPBL /api/Presentation</span>
+      <span class="vr-falha-aula">⚠ Etapa desconhecida: presentation — sem avanço automático</span>
+      <div class="vr-relogio">
+        <span class="vr-relogio__rotulo">avança em</span>
+        <span class="vr-relogio__tempo">9:56</span>
+        
+      </div>
+      <div class="vr-hist"><button class="vr-hist__botao">Histórico 3</button></div>
+      <!-- `.vr-voto` é `position: fixed` perto do rodapé de propósito: é um
+           cartão flutuante, não um item do cabeçalho. Fica aqui porque é
+           filho do mesmo bloco no JSX, e a sonda o ignora por ser fixed. -->
+      <div class="vr-voto">Podemos seguir? 2 de 12 · 0:12</div>
+    </div>
+    <div class="vr-header-right">
+      <button class="vr-ctrl">Microfone</button>
+      <button class="vr-ctrl">Câmera</button>
+      <button class="vr-ctrl">Chat</button>
+      <button class="vr-ctrl">Código</button>
+      <button class="vr-end-btn">Sair</button>
+    </div>
+  </div>
+</header>
+
+<div id="video" style="height:120px;background:#111827;border-top:1px solid #222"></div>

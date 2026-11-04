@@ -1349,6 +1349,21 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
             class-code foi para a esquerda; o ▶ é só do controlador, na direita). */}
         {pblActive && <ActivityBar stage={pblStage} head={curStep.head} />}
 
+        {/* TUDO QUE É ESTADO DA AULA VIVE NESTA CAIXA, e a caixa existe por um
+            motivo estrutural, não estético.
+
+            O `.vr-actbar` era `position: absolute` centrado no header: ele não
+            ocupa espaço no fluxo, então TODO irmão de fluxo ficava embaixo
+            dele. Em 04/11/2026 o cronômetro novo apareceu escrito por cima de
+            "Abertura" — e o mesmo valia, em silêncio, para o progresso, os
+            avisos, o histórico e o cartão de voto.
+
+            Agora o header é uma grade de três colunas e nada é absoluto:
+            marca | atividade | este bloco + controles. Sobreposição deixa de
+            ser uma questão de acertar margem e passa a ser impossível. */}
+        <div className="vr-header-end">
+        <div className="vr-header-status">
+
         {/* PROGRESSO: só nas etapas em que a turma está respondendo algo. Fora
             delas o número não significa nada e só ocuparia a tela. */}
         {pblActive && pblStage === "release_risks" && (
@@ -1428,6 +1443,8 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
           />
         )}
 
+        </div>{/* /vr-header-status */}
+
         {/* Canto superior direito: controles da chamada (antes eram uma pílula
             centralizada no rodapé), cronômetro/contagem e Encerrar sala. */}
         <div className="vr-header-right">
@@ -1506,6 +1523,7 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
             )}
           </div>
         </div>
+        </div>{/* /vr-header-end */}
       </header>
 
       {breakout.isStaff
@@ -2462,7 +2480,12 @@ function RelogioDaEtapa({ fimEm, auto, proxima }: {
         {resta > 0 ? "avança em" : "seguindo…"}
       </span>
       {resta > 0 && <span className="vr-relogio__tempo">{mmss}</span>}
-      <span className="vr-relogio__proxima">→ {proxima}</span>
+      {/* A PRÓXIMA ETAPA FICA NO `title`, não na pílula.
+          Escrita aqui ela triplicava a largura do bloco — e aparecia cortada
+          de qualquer jeito ("→ Ini"), porque nunca houve espaço para ela. Com
+          a pílula larga, o bloco de estado não cabia ao lado dos controles em
+          1440px e o cabeçalho dobrava de altura. Medido: 77px com ela, 42px
+          sem. Quem quiser saber o que vem depois passa o mouse. */}
     </div>
   );
 }
