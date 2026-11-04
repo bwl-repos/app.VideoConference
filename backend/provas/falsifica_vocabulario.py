@@ -52,6 +52,14 @@ ESTRAGOS = [
      FRONT,
      "apenasFixada={!!pblClass?.auto_mode}",
      "apenasFixada={false}"),
+
+    # O defeito mais silencioso dos seis: sem o intervalo, o GET /openpbl só
+    # acontece quando alguém entra na sala, e a cadência nunca mais é avaliada.
+    # Não gera erro nenhum -- a sala simplesmente para.
+    ("a cadencia deixa de ser chamada periodicamente",
+     FRONT,
+     "const iv = setInterval(load, 10000);\n    const off = sdk.subscribe(roomId, (event, payload) => {",
+     "const off = sdk.subscribe(roomId, (event, payload) => {"),
 ]
 
 

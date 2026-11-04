@@ -670,5 +670,41 @@ conferir("apenasFixada" in _FRONT_COD and "pinnedTrack" in _FRONT_COD,
          "some o fallback (host por ser host), nao a escolha explicita")
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# 17. QUEM FAZ A CADENCIA RODAR
+#
+# A cadencia e avaliada DENTRO do GET /openpbl. Isso so funciona enquanto
+# alguem chama aquele endpoint periodicamente -- e ate 04/11/2026 ninguem
+# chamava: o frontend buscava `classState` UMA vez na entrada e depois so em
+# reconexao de WebSocket. A sala avancava quando alguem entrava e parava.
+#
+# Medido: a sala ficou 4 minutos em `registration_close`, etapa de 30 segundos,
+# sem UMA linha de erro -- porque a regra nao estava sendo chamada. Defeito
+# invisivel por ausencia: nao ha log de algo que nao aconteceu.
+#
+# A guarda e esta: o intervalo tem de existir DENTRO do efeito que busca a
+# aula. Procurar `setInterval(load, 10000)` no arquivo inteiro nao serviria --
+# o roster tem um igual, e a prova passaria com o da aula removido.
+# ═══════════════════════════════════════════════════════════════════════════
+# A ANCORA E A FORMA UNICA DESTE EFEITO. Ha tres chamadas a `classState` no
+# arquivo (um handler, este efeito e um painel), e ancorar na primeira media o
+# trecho errado -- foi o que esta prova fez na primeira escrita.
+_i = _FRONT_COD.find("sdk.openpbl.classState(roomId).then(setPblClass)")
+conferir(_i != -1, "o frontend busca o estado da aula no efeito de pblClass")
+_efeito = _FRONT_COD[_i:_i + 700] if _i != -1 else ""
+conferir("setInterval(load," in _efeito,
+         "e REPETE a busca num intervalo",
+         "sem repetir, a cadencia so roda quando alguem entra na sala")
+conferir("clearInterval(" in _efeito,
+         "e o intervalo e desmontado junto com o componente",
+         "sem limpar, cada troca de sala deixaria um laco vivo")
+
+# CONTROLE: o intervalo medido e o DA AULA, nao o do roster.
+_i_roster = _FRONT_COD.find("sdk.openpbl.roster(roomId)")
+conferir(_i_roster == -1 or not (_i < _i_roster < _i + 700),
+         "CONTROLE: a janela medida nao alcanca o efeito do roster",
+         "senao o intervalo do roster faria a prova passar sozinho")
+
+
 print("falhas: %d" % falhas)
 raise SystemExit(1 if falhas else 0)

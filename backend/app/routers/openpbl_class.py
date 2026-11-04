@@ -485,10 +485,19 @@ async def get_class(room_id: str, user: CurrentUser | None = Depends(optional_us
     row = await _get_class(room_id)
     if not row:
         return {"active": False}
-    # A CADÊNCIA É AVALIADA AQUI, na leitura, e não num laço de fundo: todo
-    # mundo na sala faz polling deste endpoint, e um laço precisaria sobreviver
-    # a reinício de processo, a deploy no meio de um encontro e a duas réplicas
-    # decidindo a mesma coisa. Sem ninguém olhando, não há encontro a conduzir.
+    # A CADÊNCIA É AVALIADA AQUI, na leitura, e não num laço de fundo: um laço
+    # precisaria sobreviver a reinício de processo, a deploy no meio de um
+    # encontro e a duas réplicas decidindo a mesma coisa. Sem ninguém olhando,
+    # não há encontro a conduzir.
+    #
+    # ATENÇÃO, E ISTO JÁ QUEBROU: a escolha só funciona enquanto ALGUÉM CHAMA
+    # ESTE ENDPOINT DE TEMPOS EM TEMPOS. Até 04/11/2026 o comentário aqui dizia
+    # que "todo mundo na sala faz polling deste endpoint" — e não fazia: o
+    # frontend chamava `classState` uma vez na entrada e depois só em
+    # reconexão de WebSocket. A sala avançava quando alguém entrava, e parava.
+    # Quem garante a chamada periódica é o `setInterval(load, 10000)` do
+    # `useEffect` de `pblClass` em `VideoRoom.tsx`; a prova confere que ele
+    # continua lá, porque sem ele esta linha nunca roda.
     row = await _aplicar_cadencia(room_id, row) or row
     return _row_to_state(row)
 

@@ -881,12 +881,29 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
     if (!scorm) return;
     const load = () => sdk.openpbl.classState(roomId).then(setPblClass).catch(() => {});
     load();
-    return sdk.subscribe(roomId, (event, payload) => {
+    // ESTE INTERVALO É O QUE FAZ A CADÊNCIA RODAR.
+    //
+    // O backend avalia a cadência DENTRO do GET /openpbl (de propósito: um laço
+    // de fundo precisaria sobreviver a reinício, a deploy no meio da aula e a
+    // duas réplicas decidindo a mesma coisa). O backend assumia que "todo mundo
+    // na sala faz polling deste endpoint" — e não fazia: `classState` era
+    // chamado UMA vez na entrada, e depois só em reconexão de WebSocket.
+    //
+    // Resultado medido em 04/11/2026: a sala avançava quando alguém entrava ou
+    // recarregava, e parava. Ficou em `registration_close` por 4 minutos com a
+    // etapa durando 30 segundos, sem erro nenhum no log — porque a regra
+    // simplesmente não era chamada.
+    //
+    // 10s é o mesmo ritmo do roster. O broadcast por WS continua entregando a
+    // mudança a quem não disparou a avaliação.
+    const iv = setInterval(load, 10000);
+    const off = sdk.subscribe(roomId, (event, payload) => {
       if (event === "openpbl-class") setPblClass(payload);
       // WS reconectou (após queda/deploy): re-busca a etapa atual, que pode ter mudado
       // enquanto o socket estava fora — é isso que evita o aluno travar numa etapa antiga.
       else if (event === "__reconnected") load();
     });
+    return () => { clearInterval(iv); off(); };
   }, [scorm, roomId]);
   const rawStage = pblClass?.stage as OpenPblStage;
   // A tela precisa de uma etapa conhecida para desenhar, então um valor que o
