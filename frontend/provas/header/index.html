@@ -3,11 +3,16 @@
 <title>Banco de prova do cabecalho da sala</title>
 <!--
   Reproduz o CABECALHO da sala com o room.css de verdade, no pior caso: todos
-  os blocos de estado visiveis ao mesmo tempo (progresso, dois avisos,
-  cronometro, historico, cartao de voto) mais a marca e os controles.
+  os blocos de estado visiveis ao mesmo tempo, a chave Automatico ao lado do
+  titulo, o sequenciador do facilitador com o rotulo LONGO de uma etapa real,
+  e os cinco controles da chamada.
 
-  Nao e uma tela bonita para olhar: e um alvo para medir caixas. O script
-  compara os retangulos de todos os blocos do cabecalho e acusa interseccao.
+  O rotulo longo e proposital: foi com `Revisitar a situacao-problema (1/2)`
+  que o bloco da direita invadiu o titulo dentro do embed. Um banco de prova
+  com rotulos curtos passava verde e nao media nada.
+
+  Nao e uma tela para olhar: e um alvo para medir caixas. O script compara os
+  retangulos e acusa interseccao.
 -->
 <link rel="stylesheet" href="room.css">
 <style>
@@ -18,13 +23,14 @@
 <header class="vr-header">
   <div class="vr-brand">
     <div class="vr-logo">B</div>
-    <div class="vr-title">15:16 | 4sgn1so</div>
+    <div class="vr-title">16:23 | zuqp4ge</div>
   </div>
 
   <div class="vr-actbar">
+    <button class="vr-actbar-ghost" data-auto="true">Automático</button>
     <div class="vr-actbar-info">
-      <span class="vr-actbar-name">Abertura</span>
-      <div class="vr-actbar-prog"><i style="width:7%"></i></div>
+      <span class="vr-actbar-name">Situação-problema</span>
+      <div class="vr-actbar-prog"><i style="width:35%"></i></div>
     </div>
   </div>
 
@@ -35,21 +41,25 @@
       <span class="vr-falha-aula">⚠ Etapa desconhecida: presentation — sem avanço automático</span>
       <div class="vr-relogio">
         <span class="vr-relogio__rotulo">avança em</span>
-        <span class="vr-relogio__tempo">9:56</span>
-        
+        <span class="vr-relogio__tempo">1:56</span>
       </div>
-      <div class="vr-hist"><button class="vr-hist__botao">Histórico 3</button></div>
+      <div class="vr-hist"><button class="vr-hist__botao">Histórico (9)</button></div>
       <!-- `.vr-voto` é `position: fixed` perto do rodapé de propósito: é um
            cartão flutuante, não um item do cabeçalho. Fica aqui porque é
            filho do mesmo bloco no JSX, e a sonda o ignora por ser fixed. -->
       <div class="vr-voto">Podemos seguir? 2 de 12 · 0:12</div>
     </div>
     <div class="vr-header-right">
-      <button class="vr-ctrl">Microfone</button>
-      <button class="vr-ctrl">Câmera</button>
-      <button class="vr-ctrl">Chat</button>
-      <button class="vr-ctrl">Código</button>
-      <button class="vr-end-btn">Sair</button>
+      <!-- O sequenciador do facilitador, com o rótulo real mais longo. -->
+      <div class="vr-seq">
+        <span class="vr-seq-label">Revisitar a situação-problema (1/2)</span>
+        <button class="vr-seq-go">▶</button>
+      </div>
+      <button class="vr-ctrl"><span class="vr-ctrl-ico">M</span><span class="vr-ctrl-lbl">Microfone</span></button>
+      <button class="vr-ctrl"><span class="vr-ctrl-ico">C</span><span class="vr-ctrl-lbl">Câmera</span></button>
+      <button class="vr-ctrl"><span class="vr-ctrl-ico">T</span><span class="vr-ctrl-lbl">Chat</span></button>
+      <button class="vr-ctrl"><span class="vr-ctrl-ico">Q</span><span class="vr-ctrl-lbl">Código</span></button>
+      <button class="vr-ctrl"><span class="vr-ctrl-ico">S</span><span class="vr-ctrl-lbl">Sair</span></button>
     </div>
   </div>
 </header>

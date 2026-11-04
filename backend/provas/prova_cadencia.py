@@ -441,12 +441,15 @@ print()
 #: Como quem nao vota conta como "nao", maioria estrita de uma turma que foi
 #: embora e inalcancavel: a cadencia NUNCA avancaria. E nao daria erro nenhum --
 #: daria uma aula parada. A regra estava certa; a entrada dela era mentira.
+# A FRONTEIRA É `_nome_no_livekit`, que foi inserida logo depois de
+# `_presentes`. Cortar só em `_estado_da_cadencia` arrastaria a função nova
+# para dentro da fatia, e as conferências abaixo passariam a medir ela.
 PRESENTES = ROUTER[ROUTER.index("async def _presentes"):]
-PRESENTES = sem_docstring(so_codigo(PRESENTES[:PRESENTES.index("def _estado_da_cadencia")]))
+PRESENTES = sem_docstring(so_codigo(PRESENTES[:PRESENTES.index("async def _nome_no_livekit")]))
 
-conferir("list_participant_identities(room_id)" in PRESENTES,
-         "a presença vem do LiveKit",
-         "quem está conectado é o SFU que sabe")
+conferir("list_participant_identities(await _nome_no_livekit(room_id))" in PRESENTES,
+         "a presença vem do LiveKit, pelo NOME da sala lá",
+         "com o uuid o LiveKit respondia vazio: '0 de 0' com a sala cheia")
 conferir("left_at" not in PRESENTES,
          "e NÃO de `left_at`, que nunca fecha",
          "a coluna nunca recebeu uma hora em toda a história do banco")
@@ -531,9 +534,22 @@ for campo in ("riscos", "pares", "alunos"):
              "`%s` conta só quem está na sala" % campo,
              "contar pelo `left_at` daria '3 de 47' numa turma de 12")
 conferir('"na_sala": p["user_id"] in na_sala' in ROUTER
-         and "na_sala = set(await list_participant_identities(room_id))" in ROUTER,
+         and "na_sala = set(await list_participant_identities("
+             "await _nome_no_livekit(room_id)))" in ROUTER,
          "e `na_sala` vem da MESMA fonte que a cadência usa",
          "duas fontes de presença daria dois números na mesma tela")
+
+# `room_id` significa duas coisas no banco, e confundi-las nao da erro: da
+# "0 de 0 alunos responderam" com a sala cheia, e a cadencia parada em tudo
+# que depende de voto (maioria exige total > 0).
+_NOME = so_codigo(ROUTER[ROUTER.index("async def _nome_no_livekit"):
+                         ROUTER.index("def _estado_da_cadencia")])
+conferir("SELECT room_id FROM video_rooms WHERE id=$1" in _NOME,
+         "o nome no LiveKit sai de `video_rooms.room_id` pelo `id`",
+         "video_rooms.id e uuid; video_rooms.room_id e o texto que o LiveKit usa")
+conferir("or room_id" in _NOME,
+         "CONTROLE: sala sem linha devolve o proprio id e a cadencia espera",
+         "estourar aqui derrubaria a leitura de estado da aula inteira")
 
 print()
 
@@ -733,9 +749,19 @@ _reg_actbar = _CSS[_j:_CSS.index("}", _j)]
 conferir("position:" not in _reg_actbar,
          "a barra da etapa NAO e posicionada por absoluto",
          "absoluto nao ocupa espaco, e os irmaos de fluxo ficam por baixo")
-conferir("grid-template-columns: 1fr auto 1fr" in _CSS,
-         "o cabecalho e uma grade de tres colunas",
-         "e o que centra a etapa SEM tirar ninguem do fluxo")
+# O cabecalho tem de poder QUEBRAR. Grade nao quebra: transborda -- foi assim
+# que a tentativa anterior (`1fr auto 1fr`) deixou o bloco da direita invadir o
+# titulo de 1100px a 1500px, que e onde o modo embed vive.
+_reg_header = _CSS[_CSS.index(".vr-header {"):_CSS.index("}", _CSS.index(".vr-header {"))]
+conferir("flex-wrap: wrap" in _reg_header,
+         "o cabecalho quebra em vez de transbordar",
+         "no pior caso o conteudo nao cabe numa linha; crescer e a saida honesta")
+conferir("grid-template-columns" not in _reg_header,
+         "e NAO e grade",
+         "item de grade transborda para cima do vizinho em vez de quebrar")
+conferir("flex: 1 1 auto" in _CSS[_CSS.index(".vr-actbar {"):_CSS.index(".vr-actbar {") + 200],
+         "a barra da etapa absorve a folga e centra o titulo nela",
+         "e o que mantem o titulo no meio sem tirar ninguem do fluxo")
 conferir(".vr-header-end {" in _CSS and ".vr-header-status {" in _CSS,
          "existe um unico filho na coluna da direita, com o estado dentro dele",
          "dois filhos na mesma celula da grade voltariam a se sobrepor")

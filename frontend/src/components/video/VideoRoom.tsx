@@ -1347,7 +1347,36 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
 
         {/* Centro: SOMENTE a atividade atual — IGUAL para facilitador e aluno (o
             class-code foi para a esquerda; o ▶ é só do controlador, na direita). */}
-        {pblActive && <ActivityBar stage={pblStage} head={curStep.head} />}
+        {pblActive && (
+          <ActivityBar
+            stage={pblStage}
+            head={curStep.head}
+            /* A CHAVE DA AUTOMAÇÃO, à esquerda do título. Automático é o
+               padrão; este botão é o freio de mão -- o host assume quando a
+               cadência vai mal, sem precisar de deploy. Vive aqui, e não no
+               canto superior direito, porque o que ela governa é a ETAPA: ao
+               lado dos controles de microfone e câmera ela parecia mais um
+               controle da chamada. Só o controlador, como o resto do
+               sequenciador. */
+            antes={pblHost && (amController || recorder) ? (
+              <button
+                className="vr-actbar-ghost"
+                data-auto={pblClass?.auto_mode !== false || undefined}
+                title={pblClass?.auto_mode !== false
+                  ? "A sala está avançando sozinha. Clique para assumir o controle."
+                  : "Você está conduzindo. Clique para devolver à condução automática."}
+                onClick={async () => {
+                  try {
+                    setPblClass(await sdk.openpbl.setCadencia(
+                      roomId, pblClass?.auto_mode === false));
+                  } catch { /* o estado volta no próximo polling */ }
+                }}
+              >
+                {pblClass?.auto_mode !== false ? "Automático" : "Manual"}
+              </button>
+            ) : null}
+          />
+        )}
 
         {/* TUDO QUE É ESTADO DA AULA VIVE NESTA CAIXA, e a caixa existe por um
             motivo estrutural, não estético.
@@ -1450,27 +1479,6 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
         <div className="vr-header-right">
           {/* Sequenciador do facilitador (Encerrar Registro / ▶ / etc.) + toggle do
               gráfico — movidos do centro para a direita, junto dos controles. */}
-          {/* A CHAVE DA AUTOMAÇÃO. Automático é o padrão; este botão é o
-              freio de mão -- o host assume quando a cadência vai mal, sem
-              precisar de deploy. Só o controlador, como o resto do
-              sequenciador. */}
-          {pblHost && (amController || recorder) && pblActive && (
-            <button
-              className="vr-actbar-ghost"
-              data-auto={pblClass?.auto_mode !== false || undefined}
-              title={pblClass?.auto_mode !== false
-                ? "A sala está avançando sozinha. Clique para assumir o controle."
-                : "Você está conduzindo. Clique para devolver à condução automática."}
-              onClick={async () => {
-                try {
-                  setPblClass(await sdk.openpbl.setCadencia(
-                    roomId, pblClass?.auto_mode === false));
-                } catch { /* o estado volta no próximo polling */ }
-              }}
-            >
-              {pblClass?.auto_mode !== false ? "Automático" : "Manual"}
-            </button>
-          )}
           {pblHost && chartAvailable && (
             <button className="vr-actbar-ghost" onClick={() => setChartHidden((h) => !h)} title="Mostrar/ocultar o gráfico de riscos">
               {chartHidden ? "Mostrar gráfico" : "Ocultar gráfico"}
@@ -1988,10 +1996,17 @@ function ClassCodeChip({ code, copied, closed, onClick, onToggleHidden, hiddenFo
 
 /** Centro do header do facilitador: SOMENTE o nome da atividade atual + progresso.
  *  O class-code foi para a esquerda (marca) e o botão ▶ para a direita (controles). */
-function ActivityBar({ stage, head }: { stage: OpenPblStage; head: string }) {
+function ActivityBar({ stage, head, antes }: {
+  stage: OpenPblStage; head: string;
+  /** Vai à ESQUERDA do título, dentro do bloco centralizado. Hoje é a chave
+   *  Automático/Manual: no canto superior direito ela ficava perdida entre os
+   *  controles da chamada, e o que ela governa é a etapa — que está aqui. */
+  antes?: React.ReactNode;
+}) {
   const step = stepIndex(stage);
   return (
     <div className="vr-actbar">
+      {antes}
       <div className="vr-actbar-info">
         <span className="vr-actbar-name">{head}</span>
         {step >= 0 && (

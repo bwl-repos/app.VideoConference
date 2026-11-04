@@ -29,7 +29,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 AQUI = Path(__file__).resolve().parent
 BANCO = AQUI / "header"
 CSS = Path(r"C:\trabalhos\BWL\VideoConferenceBWL\frontend\src\styles\room.css")
-LARGURAS = [1920, 1600, 1440, 1280, 1100, 1024, 1000, 980, 900, 860, 768, 640, 500, 420, 360]
+LARGURAS = [1920, 1770, 1700, 1600, 1500, 1440, 1366, 1280, 1200, 1100, 1024, 1000, 900, 860, 768, 640, 420, 360]
 
 EDGE = next((p for p in [
     Path(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),

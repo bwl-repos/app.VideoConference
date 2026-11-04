@@ -240,7 +240,7 @@ async def _presentes(room_id: str) -> list[str]:
     devolve `[]` quando falha) não avança nada: `maioria` exige `total > 0`. O
     viés é o mesmo de toda a cadência, que é esperar.
     """
-    vivos = await list_participant_identities(room_id)
+    vivos = await list_participant_identities(await _nome_no_livekit(room_id))
     if not vivos:
         return []
     linhas = await pool().fetch(
@@ -248,6 +248,31 @@ async def _presentes(room_id: str) -> list[str]:
         "WHERE room_id=$1 AND is_staff", room_id)
     staff = {l["user_id"] for l in linhas}
     return sorted(i for i in set(vivos) if i not in staff)
+
+
+async def _nome_no_livekit(room_id: str) -> str:
+    """O nome que ESTA sala tem no LiveKit.
+
+    `room_id` significa duas coisas diferentes neste banco, e é uma armadilha
+    que já custou caro:
+
+      - `video_rooms.id`          -> uuid. É o que chega aqui pela URL e o que
+                                     `video_room_openpbl_class.room_id` guarda.
+      - `video_rooms.room_id`     -> TEXTO, tipo `room_C21_FdzQMQY`. É o nome
+                                     da sala no LiveKit, e é o que `create_token`
+                                     põe no grant.
+
+    Passar o uuid para o LiveKit pergunta por uma sala que não existe. O erro
+    não aparece: `list_participant_identities` devolve `[]` quando falha, então
+    o sintoma é "0 de 0 alunos responderam" com a sala cheia -- e, pior, a
+    cadência nunca avança nas etapas que dependem de voto, porque `maioria`
+    exige `total > 0`.
+
+    Sem linha (sala apagada), devolve o próprio `room_id`: o LiveKit responde
+    vazio e a cadência espera, que é o viés certo.
+    """
+    nome = await pool().fetchval("SELECT room_id FROM video_rooms WHERE id=$1", room_id)
+    return nome or room_id
 
 
 def _estado_da_cadencia(row) -> cadencia.Estado:
@@ -1363,7 +1388,10 @@ async def class_roster(room_id: str, user: CurrentUser | None = Depends(optional
     # nesta sala algum dia. A LISTA de alunos segue inteira, porque a tela a
     # consome como tabela de consulta por identidade (`byId[s.identity]`) e uma
     # entrada a mais ali é inerte; é para CONTAR que a diferença importa.
-    na_sala = set(await list_participant_identities(room_id))
+    # Pelo NOME no LiveKit, não pelo uuid -- ver `_nome_no_livekit`. É daqui que
+    # sai `progresso.alunos`, o "de N" do cartão de voto: com o uuid ele dizia
+    # "0 de 0 alunos responderam" numa sala com gente, e depois "1 de 0".
+    na_sala = set(await list_participant_identities(await _nome_no_livekit(room_id)))
 
     students = []
     for p in parts:

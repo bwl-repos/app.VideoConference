@@ -30,34 +30,45 @@
 }
 
 /* ---------- Header ---------- */
-/* GRADE DE TRÊS COLUNAS, e a escolha é estrutural.
+/* FLEX COM QUEBRA, e a escolha é estrutural — duas tentativas antes desta
+   falharam por motivos que vale guardar.
 
-   Antes: header em flex com o `.vr-actbar` em `position: absolute` centrado.
-   Como o absoluto não ocupa espaço no fluxo, TODO irmão de fluxo passava por
-   baixo dele. Em 04/11/2026 o cronômetro da etapa apareceu escrito por cima
-   de "Abertura"; o progresso, os avisos, o histórico e o cartão de voto
-   tinham o mesmo defeito, só que ninguém tinha visto ainda.
+   1. Era flex com o `.vr-actbar` em `position: absolute` centrado. Absoluto
+      não ocupa espaço no fluxo, então TODO irmão de fluxo passava por baixo
+      dele: em 04/11/2026 o cronômetro apareceu escrito por cima de
+      "Abertura", e o progresso, os avisos e o histórico tinham o mesmo
+      defeito há mais tempo.
 
-   Com `1fr auto 1fr` a coluna do meio fica centrada na tela (as laterais
-   dividem o resto em partes iguais) E ocupa espaço de verdade. Sobreposição
-   deixa de ser questão de acertar margem: não há como acontecer.
+   2. Virou grade `1fr auto 1fr`, que centra de verdade. Mas centrar de
+      verdade exige colunas laterais do mesmo tamanho, e aqui a direita
+      (sequenciador com rótulo longo + cinco controles, ~900px) é muito maior
+      que a marca (~200px). Quando a direita não cabia na sua metade ela
+      transbordava PARA A ESQUERDA, por cima do título — de 1100px a 1500px,
+      que é exatamente onde o modo embed vive. Item de grade transborda; não
+      quebra.
 
-   `min-width: 0` nas laterais é o que permite elas encolherem em vez de
-   empurrar a do meio para fora. */
+   3. Agora: flex com `flex-wrap`. Quando o conteúdo não cabe, o cabeçalho
+      CRESCE em vez de sobrepor — e crescer é a única saída honesta, porque no
+      pior caso (todos os blocos de estado juntos) ele realmente não cabe numa
+      linha. `.vr-actbar` com `flex: 1 1 auto` absorve a folga e centra o
+      título dentro dela.
+
+   Medido por `provas/medir_cabecalho.py`, que compara retângulos em 18
+   larguras. Qualquer mexida aqui passa por ele. */
 .vr-header {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  gap: 8px 12px;
   padding: 6px 14px;
-  gap: 12px;
 }
-.vr-brand { grid-column: 1; justify-self: start; min-width: 0; }
-.vr-actbar { grid-column: 2; justify-self: center; }
-/* UM ÚNICO filho na coluna 3. Estado da aula e controles ficam dentro dele:
-   dois filhos na mesma célula da grade se sobreporiam — que é o defeito que
-   esta grade existe para tornar impossível. */
+.vr-brand { flex: 0 1 auto; min-width: 0; }
+/* A barra da etapa ABSORVE a folga e centra o conteudo DENTRO dela. E o que
+   deixa o titulo no meio sem tirar ninguem do fluxo. */
+.vr-actbar { flex: 1 1 auto; min-width: 0; justify-content: center; }
+/* UM UNICO irmao com o estado da aula e os controles. */
 .vr-header-end {
-  grid-column: 3; justify-self: end; min-width: 0;
+  flex: 0 1 auto; min-width: 0;
   display: flex; align-items: center; justify-content: flex-end;
   gap: 12px; flex-wrap: wrap;
 }
@@ -66,7 +77,7 @@
   display: flex; align-items: center; justify-content: flex-end;
   gap: 8px; flex-wrap: wrap;
 }
-.vr-header-right { display: flex; align-items: center; gap: 14px; flex: none; }
+.vr-header-right { display: flex; align-items: center; gap: 14px; flex: 0 1 auto; min-width: 0; }
 
 /* O CABEÇALHO EMPILHA ANTES DO BREAKPOINT GERAL (768px), e por uma razão
    medida: entre ~768px e ~1000px as três colunas ainda não cabem quando todos
@@ -77,11 +88,6 @@
 
    Medido com `scratchpad/medir_cabecalho.py`, que carrega este arquivo e
    compara os retângulos: 1024px passa, 860px não. */
-@media (max-width: 1000px) {
-  .vr-header { grid-template-columns: 1fr; }
-  .vr-brand { grid-column: 1; order: 1; justify-self: stretch; }
-  .vr-header-end { grid-column: 1; order: 2; justify-self: stretch; justify-content: space-between; }
-  .vr-actbar { grid-column: 1; order: 3; justify-self: stretch; }
 }
 .vr-brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .vr-logo {
@@ -945,7 +951,10 @@
    sequenciador alinhar com a LINHA DOS ÍCONES (topo), não com o centro do controle. */
 /* gap 14px = mesmo espaçamento do header-right (verde ↔ microfone), então o ▶ verde
    fica equidistante do rótulo e do 1º botão vermelho. */
-.vr-seq { display: inline-flex; align-items: center; gap: 14px; flex: none; margin-bottom: 15px; }
+/* Sem `margin-bottom`: ela existia para compensar o alinhamento quando a
+   barra da etapa era absoluta. Com o cabecalho em fluxo ela so inflava a
+   altura -- medido, 15px a mais em toda largura. */
+.vr-seq { display: inline-flex; align-items: center; gap: 14px; flex: 0 1 auto; min-width: 0; }
 /* Rótulo da etapa. Dentro do sequenciador (.vr-seq) é um <span> informativo — quem
    avança é só o botão verde. Fora dele a mesma classe ainda veste um botão real
    ("Assumir controle"), por isso o cursor/hover ficam escopados ali. */
@@ -954,6 +963,9 @@
   height: 30px; padding: 0 12px; border-radius: 8px;
   background: var(--vr-surface-2); color: var(--vr-text);
   border: 1px solid var(--vr-border); font-size: 12.5px; font-weight: 700;
+  /* Encolhe em vez de empurrar: o rotulo e a parte mais larga e mais
+     variavel da direita (`Revisitar a situacao-problema (1/2)`). */
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   white-space: nowrap; transition: background .15s, border-color .15s;
 }
 button.vr-seq-label { cursor: pointer; }

@@ -1,8 +1,11 @@
 """LiveKit token generation + server REST helpers."""
+import logging
 import time
 from datetime import timedelta
 from livekit import api
 from ..config import settings
+
+logger = logging.getLogger(__name__)
 
 
 def create_token(
@@ -81,11 +84,24 @@ async def remove_participant(room_name: str, identity: str) -> None:
 
 
 async def list_participant_identities(room_name: str) -> list[str]:
+    """Quem está conectado AGORA, pelo NOME da sala no LiveKit.
+
+    `room_name` é `video_rooms.room_id` (texto, tipo `room_C21_FdzQMQY`) --
+    NÃO o uuid `video_rooms.id`. Passar o uuid pergunta por uma sala que não
+    existe e devolve lista vazia, e lista vazia aqui é indistinguível de "sala
+    vazia": foi assim que o cartão de voto exibiu "0 de 0 alunos responderam"
+    com a sala cheia, e a cadência parou de avançar em tudo que depende de
+    voto. Ver `_nome_no_livekit` em `routers/openpbl_class.py`.
+
+    Devolver `[]` na falha é deliberado (a aula não para porque o LiveKit
+    piscou), mas o log não é opcional: era o silêncio que escondia o defeito.
+    """
     lk = livekit_api()
     try:
         resp = await lk.room.list_participants(api.ListParticipantsRequest(room=room_name))
         return [p.identity for p in resp.participants]
     except Exception:
+        logger.exception("[livekit] falha ao listar participantes de %r", room_name)
         return []
     finally:
         await lk.aclose()

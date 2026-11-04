@@ -67,10 +67,18 @@ ESTRAGOS = [
      ".vr-actbar {\n  display: flex;",
      ".vr-actbar {\n  position: absolute; left: 50%; top: 50%;\n  display: flex;"),
 
-    ("o cabecalho deixa de ser grade de tres colunas",
+    ("o cabecalho deixa de quebrar (volta a transbordar)",
      RAIZ.parent / "frontend/src/styles/room.css",
-     "grid-template-columns: 1fr auto 1fr;",
-     "grid-template-columns: 1fr auto;"),
+     "  display: flex;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px 12px;",
+     "  display: flex;\n  align-items: center;\n  gap: 8px 12px;"),
+
+    # O defeito do "0 de 0 alunos responderam": o uuid no lugar do nome do
+    # LiveKit. Nao da erro -- da sala cheia contada como vazia, e cadencia
+    # parada em tudo que depende de voto.
+    ("a presenca volta a ser consultada pelo uuid",
+     RAIZ / "app/routers/openpbl_class.py",
+     "vivos = await list_participant_identities(await _nome_no_livekit(room_id))",
+     "vivos = await list_participant_identities(room_id)"),
 
     ("a pilula do relogio volta a escrever a proxima etapa",
      FRONT,
