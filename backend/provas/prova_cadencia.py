@@ -240,6 +240,27 @@ conferir(da_tela == ORDEM,
              "" if da_tela == ORDEM else
              " — só na cadência: %s" % (set(ORDEM) - set(da_tela) or "nenhuma")))
 
+#: Conhecer a etapa não basta. O ▶ do host executa um `switch` por etapa, e uma
+#: etapa SEM `case` deixa o botão sem efeito nenhum: o encontro em modo manual
+#: para ali, sem erro em lugar nenhum e com o rótulo anunciando uma ação que o
+#: clique não executa. Foi o SEGUNDO defeito de `amplify_code`, no mesmo dia:
+#: acrescentá-la a `STEPS` consertou o rótulo da etapa e deixou o clique mudo.
+corpo_run = front[front.index("const runStep = async () => {"):]
+corpo_run = corpo_run[:corpo_run.index("\n  return (")]
+sem_case = [e for e in da_tela if 'case "%s":' % e not in corpo_run]
+conferir(not sem_case,
+         "e toda etapa da tela tem `case` no sequenciador do host",
+         "sem `case`: %s" % (", ".join(sem_case) or "nenhuma"))
+
+#: O TERCEIRO efeito de acrescentar uma etapa: as âncoras que comparam POSIÇÃO.
+#: `codeReleased` dizia `>= registration_close`, isto é, "a etapa seguinte à de
+#: abrir o registro" — mas a etapa seguinte passou a ser `amplify_code`, e o
+#: facilitador ficava sem o chip do código exatamente na etapa que existe para
+#: mostrá-lo. Uma comparação por posição é uma cópia DISFARÇADA da ordem.
+conferir('stepIndex(pblStage) >= stepIndex("amplify_code")' in front,
+         "o chip do class code é liberado na etapa que existe para mostrá-lo",
+         "comparação por posição é cópia disfarçada da ordem das etapas")
+
 print()
 print("9) as funções auxiliares, nos extremos")
 print()

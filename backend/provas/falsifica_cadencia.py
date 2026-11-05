@@ -36,6 +36,18 @@ ESTRAGOS = [
      '  { id: "amplify_code",       action: "Ampliar o código da sessão",           head: "Registro de Presença" },\n',
      ""),
 
+    # O SEGUNDO defeito da mesma etapa: a tela conhece, o botao nao executa.
+    ("o sequenciador do host volta a nao ter `case` para a etapa",
+     FRONT,
+     '        case "amplify_code":\n',
+     '        case "amplify_code_que_ninguem_usa":\n'),
+
+    # O TERCEIRO: a ancora por posicao fica apontando para a etapa errada.
+    ("o class code volta a ser liberado uma etapa depois",
+     FRONT,
+     'stepIndex(pblStage) >= stepIndex("amplify_code")',
+     'stepIndex(pblStage) >= stepIndex("registration_close")'),
+
     ("a tela ganha uma etapa que a cadencia nao tem",
      FRONT,
      '  { id: "done",               action: "Encerrar a sala",                      head: "Encerramento" },',

@@ -142,22 +142,44 @@ ESTRAGOS = [
     # ── A tela ──────────────────────────────────────────────────────────────
     ("volta a existir uma SEGUNDA copia do mapa etapa->secao",
      FRONT,
-     "  // Demais etapas: seção do roteiro correspondente (mapa único, ver `secaoDaEtapa`;\n"
-     '  // `closing` cai em "feedback", etapa que o gráfico costuma cobrir).\n'
-     '  const secao = secaoDaEtapa(stage) ?? "feedback";',
-     "  // Demais etapas: seção do roteiro correspondente.\n"
+     "  const blocos = blocosDaEtapa(roteiro, stage);",
      '  const secao = stage === "registration_open" || stage === "registration_close" ? "abertura"\n'
      '    : stage === "synopsis" ? "revisitando"\n'
      '      : stage === "groups" ? "aquecimento"\n'
      '        : stage === "plenary" ? "plenaria"\n'
      '          : stage === "release_risks" ? "analise"\n'
-     '            : "feedback";'),
+     '            : "feedback";\n'
+     "  const blocos = rBlocos(roteiro, secao);"),
 
-    ("`amplify_code` volta a cair no else e mostra a secao de FEEDBACK",
+    ("`amplify_code` volta a cair no default e mostra a secao de FEEDBACK",
      FRONT,
-     '  return stage === "registration_open" || stage === "registration_close"\n'
-     '    || stage === "amplify_code" ? "abertura"',
-     '  return stage === "registration_open" || stage === "registration_close" ? "abertura"'),
+     '    case "registration_open": case "amplify_code": case "registration_close":',
+     '    case "registration_open": case "registration_close":'),
+
+    ("o mapa volta a ter catch-all e a voz anuncia o FEEDBACK no meio da analise",
+     FRONT,
+     "    default:\n      return null;\n  }\n}",
+     '    default:\n      return "feedback";\n  }\n}'),
+
+    ("as questoes da plenaria voltam a falar a secao inteira",
+     FRONT,
+     '  if (stage === "question") return rIntroQuestoes(r);\n',
+     ""),
+
+    ("o card 'Relembrando o episodio' volta a aparecer sem voz",
+     FRONT,
+     '        : pblStage === "plenary" ? paresRelembrando\n',
+     ""),
+
+    ("o texto fixo volta a ser relido em toda etapa da mesma secao",
+     FRONT,
+     "      const repete = !!chaveDosFixos && chaveDosFixos === antes.fixos;",
+     "      const repete = false;"),
+
+    ("o repetir volta a tocar so o ultimo card revelado",
+     FRONT,
+     "            onRepetir={repetirAEtapa}",
+     "            onRepetir={voz.repetir}"),
 
     ("a aba espelho do grupo passa a falar junto (instrucao em dobro)",
      FRONT,

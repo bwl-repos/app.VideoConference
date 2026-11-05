@@ -1014,6 +1014,14 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
   );
   const roteiroSinopse = useMemo(() => paresSinopse.map((p) => p.texto), [paresSinopse]);
   const paresOrientadoras = useMemo(() => rListaComVoz(roteiro, "questoesOrientadoras"), [roteiro]);
+  // "Relembrando o episódio": card ÚNICO da plenária. Não é cascata, mas entra na
+  // mesma lista para a sala LER o que está na tela — ele era o único conteúdo
+  // variável exibido e nunca falado. Lista de um item não mexe no rótulo do ▶:
+  // as travas do sequenciador são todas `revealItems.length > 1`.
+  const paresRelembrando = useMemo(
+    () => [rTextoComVoz(roteiro, "relembrandoEpisodio")].filter((p) => p.texto),
+    [roteiro],
+  );
   const roteiroOrientadoras = useMemo(() => paresOrientadoras.map((p) => p.texto), [paresOrientadoras]);
   // Riscos a avaliar na Análise situacional. Vêm do roteiro; salas antigas (sem roteiro)
   // ainda caem nas dimensões do conjunto escolhido na criação.
@@ -1123,6 +1131,19 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
   // Toda troca de etapa recomeça a revelação do zero.
   useEffect(() => { setReveal(0); }, [pblStage]);
 
+  // A etapa "Ampliar o código da sessão" É isto: o class code grande na tela,
+  // para quem chegou atrasado entrar antes de o registro fechar.
+  //
+  // Cada cliente abre o SEU popup ao entrar na etapa, em vez de o host
+  // transmitir o `code-expand`: em modo automático não há host clicando, e era
+  // essa a etapa que a tela não conhecia. Ao sair da etapa o popup fecha — o
+  // código volta para o chip, e a apresentação reaparece inteira.
+  useEffect(() => {
+    if (pblStage !== "amplify_code") return;
+    setCodeExpand(true);
+    return () => setCodeExpand(false);
+  }, [pblStage]);
+
   const goToStep = async (id: OpenPblStage) => {
     try { setPblClass(await sdk.openpbl.setStage(roomId, id)); } catch { /* */ }
   };
@@ -1136,10 +1157,12 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
   const revealPares = useMemo(
     () => (pblStage === "synopsis" ? paresSinopse
       : pblStage === "groups" ? paresOrientadoras
-        : pblStage === "question" ? paresQuestions
-          : pblStage === "situational" ? paresSituacional
-            : []),
-    [pblStage, paresSinopse, paresOrientadoras, paresQuestions, paresSituacional],
+        : pblStage === "plenary" ? paresRelembrando
+          : pblStage === "question" ? paresQuestions
+            : pblStage === "situational" ? paresSituacional
+              : []),
+    [pblStage, paresSinopse, paresOrientadoras, paresRelembrando, paresQuestions,
+     paresSituacional],
   );
   const revealItems = useMemo(() => revealPares.map((p) => p.texto), [revealPares]);
   // Quem conduz usa o próprio contador; os demais seguem o que ele transmite.
@@ -1165,18 +1188,28 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
   const chaveDosFixos = vozFixaDaEtapa.join("\n");
   const chaveDosCards = revealPares.map((p) => p.voz).join("\n");
   const [filaDaVoz, setFilaDaVoz] = useState<string[]>([]);
-  const jaFalado = useRef<{ stage: string; ate: number }>({ stage: "", ate: 0 });
+  const jaFalado = useRef<{ stage: string; ate: number; fixos: string }>(
+    { stage: "", ate: 0, fixos: "" });
   useEffect(() => {
     const antes = jaFalado.current;
     const cards = chaveDosCards ? chaveDosCards.split("\n") : [];
     if (antes.stage !== pblStage) {
       // Etapa nova: fala as instruções fixas e o que já estiver revelado.
-      jaFalado.current = { stage: pblStage, ate: shownCount };
-      setFilaDaVoz([...(chaveDosFixos ? chaveDosFixos.split("\n") : []),
+      //
+      // "Fixas" só se forem OUTRAS. Três etapas compartilham a seção de
+      // abertura (abrir o registro, ampliar o código, encerrar o registro), e
+      // as duas últimas duram 30s: repetir ali relia as instruções de presença
+      // por cima de si mesmas, cortadas no meio pela etapa seguinte. Quem
+      // quiser ouvir de novo — é o caso de quem chegou atrasado — tem o ↻, que
+      // remonta a fila inteira.
+      const repete = !!chaveDosFixos && chaveDosFixos === antes.fixos;
+      jaFalado.current = { stage: pblStage, ate: shownCount,
+                           fixos: chaveDosFixos || antes.fixos };
+      setFilaDaVoz([...(chaveDosFixos && !repete ? chaveDosFixos.split("\n") : []),
                     ...cards.slice(0, shownCount)].filter(Boolean));
     } else if (shownCount > antes.ate) {
       // Mesma etapa, card novo: fala SÓ o que entrou.
-      jaFalado.current = { stage: pblStage, ate: shownCount };
+      jaFalado.current = { ...antes, stage: pblStage, ate: shownCount };
       setFilaDaVoz(cards.slice(antes.ate, shownCount).filter(Boolean));
     }
   }, [pblStage, shownCount, chaveDosFixos, chaveDosCards]);
@@ -1184,6 +1217,18 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
   // o aluno ouviria a instrução em dobro, defasada.
   const voz = useVozDaEtapa(filaDaVoz, pblActive && !isBroadcast(identity || ""));
   const temVozNaEtapa = filaDaVoz.length > 0 || !!chaveDosFixos;
+  // ↻ Repetir remonta a fila INTEIRA da etapa — os textos fixos mais os cards já
+  // revelados — e força a fala a recomeçar. A fila corrente guarda só o DELTA
+  // (o último card), então repetir o que está nela não é o que se pede quando
+  // alguém diz "não ouvi". Também é a saída para a etapa que de propósito não
+  // repetiu o texto fixo (ampliar o código) e para a sala que recebeu as URLs
+  // da voz depois de a etapa abrir.
+  const repetirAEtapa = () => {
+    const cards = chaveDosCards ? chaveDosCards.split("\n") : [];
+    setFilaDaVoz([...(chaveDosFixos ? chaveDosFixos.split("\n") : []),
+                  ...cards.slice(0, shownCount)].filter(Boolean));
+    voz.repetir();
+  };
 
   // Rótulo do botão sequencial (▶): SEMPRE o que o próximo clique vai fazer.
   //
@@ -1210,8 +1255,12 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
         : curStep.action;
 
   // Class-code só é liberado (mostrado ao facilitador) DEPOIS de clicar em "Iniciar o
-  // registro" — ou seja, a partir da etapa de "Encerrar o registro" (registro aberto).
-  const codeReleased = !!classCode && stepIndex(pblStage) >= stepIndex("registration_close");
+  // registro" — ou seja, da etapa SEGUINTE em diante, com o registro já aberto.
+  //
+  // Essa etapa seguinte é `amplify_code`, não `registration_close`: a etapa de
+  // ampliar o código entrou entre as duas, e com a âncora antiga o facilitador
+  // ficava sem o chip do código justamente na etapa que existe para mostrá-lo.
+  const codeReleased = !!classCode && stepIndex(pblStage) >= stepIndex("amplify_code");
   // Código no header (esquerda): facilitador após iniciar o registro; aluno enquanto o
   // registro está aberto e não oculto. O header do aluno espelha o do facilitador.
   const showBrandCode = !!classCode && (amStaff ? codeReleased : studentCanSeeCode);
@@ -1308,6 +1357,15 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
           break;
         case "registration_open":
           // Registro abre por padrão ao iniciar a aula; aqui só avança a etapa.
+          await goToStep(next);
+          break;
+        case "amplify_code":
+          // O código grande entra em tela pela PRÓPRIA etapa (ver o efeito do
+          // popup), e não por este clique: em modo automático não há ninguém
+          // clicando, e a etapa existe justamente para quem chegou atrasado.
+          // Sem este `case` o ▶ do host não fazia absolutamente nada, e o
+          // encontro em modo manual parava aqui — a etapa só passou a aparecer
+          // na tela em 05/11/2026 e o `switch` não a conhecia.
           await goToStep(next);
           break;
         case "registration_close":
@@ -1545,7 +1603,7 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
             falando={voz.falando}
             silenciado={voz.silenciado}
             onAlternar={voz.alternarSilencio}
-            onRepetir={voz.repetir}
+            onRepetir={repetirAEtapa}
           />
         )}
 
@@ -1949,19 +2007,52 @@ function rTitulo(r: RoteiroSnapshot | null, key: string): string {
  *  duas cópias, divergir faria a sala falar o texto de uma seção enquanto mostra
  *  outra — e nada na tela acusaria o erro. `null` = etapa sem texto fixo. */
 function secaoDaEtapa(stage: OpenPblStage): string | null {
-  if (stage === "session_start") return null;   // vinheta da série, não é instrução
-  if (stage === "release_feedback" || stage === "done") return "feedback";
-  // `amplify_code` entra com as de registro: é a mesma seção do roteiro
-  // ("Abertura e registro"), e o `head` dela em STEPS é o mesmo. Sem esta
-  // linha ela cairia no `else` final e a tela mostraria a seção de FEEDBACK
-  // no meio do registro de presença.
-  return stage === "registration_open" || stage === "registration_close"
-    || stage === "amplify_code" ? "abertura"
-    : stage === "synopsis" ? "revisitando"
-      : stage === "groups" ? "aquecimento"
-        : stage === "plenary" ? "plenaria"
-          : stage === "release_risks" ? "analise"
-            : "feedback";
+  switch (stage) {
+    case "session_start":
+      return null;   // vinheta da série, não é instrução
+    // `amplify_code` entra com as de registro: é a mesma seção do roteiro
+    // ("Abertura e registro"), e o `head` dela em STEPS é o mesmo. Sem esta
+    // linha ela cairia no `default` e a tela mostraria a seção de FEEDBACK
+    // no meio do registro de presença.
+    case "registration_open": case "amplify_code": case "registration_close":
+      return "abertura";
+    case "synopsis":
+      return "revisitando";
+    case "groups":
+      return "aquecimento";
+    // Uma seção, DUAS etapas: ver `blocosDaEtapa`, que reparte os blocos.
+    case "plenary": case "question":
+      return "plenaria";
+    case "situational": case "release_risks":
+      return "analise";
+    case "release_feedback": case "done":
+      return "feedback";
+    // `show_chart` e `closing`: a tela é o GRÁFICO, não um texto do roteiro.
+    //
+    // Estas quatro (com `question` e `situational`) caíam num `else` que
+    // devolvia "feedback". Na TELA isso nunca apareceu — o gráfico e as
+    // cascatas cobrem a seção —, mas a VOZ lê deste mesmo mapa, e o efeito era
+    // a sala ANUNCIAR a última atividade do encontro no meio da análise de
+    // riscos. Um `else` que "não acontece" para a tela acontece para quem lê o
+    // mapa por outro motivo.
+    default:
+      return null;
+  }
+}
+
+/** Os blocos de texto fixo DESTA etapa: a mesma lista que a tela mostra e que a
+ *  voz lê, para as duas não divergirem.
+ *
+ *  A seção "Discussão em Plenária" é repartida entre duas etapas: o 1º bloco (o
+ *  objetivo da discussão) abre a plenária, e os seguintes descrevem a DINÂMICA
+ *  das questões — estes pertencem à tela "Questões para reflexão", onde entram
+ *  como `intro` da cascata (ver `rIntroQuestoes`). */
+function blocosDaEtapa(r: RoteiroSnapshot | null, stage: OpenPblStage): RoteiroBlocoFixo[] {
+  const secao = secaoDaEtapa(stage);
+  if (!secao) return [];
+  if (stage === "plenary") return rBlocos(r, secao).slice(0, 1);
+  if (stage === "question") return rIntroQuestoes(r);
+  return rBlocos(r, secao);
 }
 
 /** As vozes dos textos fixos desta etapa, na ordem de leitura.
@@ -1971,9 +2062,7 @@ function secaoDaEtapa(stage: OpenPblStage): string | null {
  *  e a fala do facilitador era a mesma para os dois. Amarrar a voz ao painel
  *  faria o aluno ouvir uma coisa e o host outra. */
 function audiosDaEtapa(r: RoteiroSnapshot | null, stage: OpenPblStage): string[] {
-  const secao = secaoDaEtapa(stage);
-  if (!secao) return [];
-  return rBlocos(r, secao).flatMap((b) => b.audios ?? []).filter(Boolean);
+  return blocosDaEtapa(r, stage).flatMap((b) => b.audios ?? []).filter(Boolean);
 }
 
 /** A sala FALA as instruções da etapa, uma após a outra, quando a etapa abre.
@@ -2125,12 +2214,9 @@ function RoteiroStage({ stage, roteiro, shown = 1 }: {
     );
   }
 
-  // Demais etapas: seção do roteiro correspondente (mapa único, ver `secaoDaEtapa`;
-  // `closing` cai em "feedback", etapa que o gráfico costuma cobrir).
-  const secao = secaoDaEtapa(stage) ?? "feedback";
-  // Na plenária só entra o 1º bloco (o objetivo). Os seguintes descrevem a dinâmica
-  // das questões e abrem a etapa "Questões para reflexão" (ver `rIntroQuestoes`).
-  const blocos = stage === "plenary" ? rBlocos(roteiro, secao).slice(0, 1) : rBlocos(roteiro, secao);
+  // Demais etapas: os blocos fixos da etapa (mapa único, ver `blocosDaEtapa` — a
+  // MESMA lista que a voz lê).
+  const blocos = blocosDaEtapa(roteiro, stage);
 
   // Conteúdo variável por etapa.
   // Cascatas aparecem card a card, conforme o facilitador avança (`shown`).

@@ -355,15 +355,40 @@ conferir("setFilaDaVoz(cards.slice(antes.ate, shownCount).filter(Boolean));" in 
          "a fila inteira recomeçaria a etapa a cada clique do facilitador")
 conferir("if (antes.stage !== pblStage) {" in FRONT,
          "e trocar de etapa fala os fixos mais o que já está revelado")
-conferir(FRONT.count('stage === "synopsis" ? "revisitando"') == 1,
+conferir(FRONT.count('return "revisitando";') == 1,
          "existe UM mapa de etapa→seção, não dois",
          "duas cópias divergem e a sala fala uma seção enquanto mostra outra")
-conferir('|| stage === "amplify_code" ? "abertura"' in FRONT,
+conferir('case "registration_open": case "amplify_code": case "registration_close":'
+         in FRONT,
          "e `amplify_code` cai em `abertura`, com as de registro",
-         "sem isso ela cairia no else final e a tela mostraria FEEDBACK "
+         "sem isso ela cairia no `default` e a tela mostraria FEEDBACK "
          "no meio do registro de presença")
-conferir("const secao = secaoDaEtapa(stage) ?? " in FRONT,
-         "e a tela da etapa lê desse mapa")
+
+#: O MAPA NÃO TEM CATCH-ALL. Ele devolvia "feedback" para toda etapa sem caso
+#: próprio, e na TELA isso nunca apareceu (gráfico e cascatas cobrem a seção) —
+#: mas a VOZ lê do mesmo mapa, e a sala anunciava a última atividade do encontro
+#: no meio da análise de riscos. Uma só ocorrência: a de `release_feedback`/`done`.
+conferir(FRONT.count('return "feedback";') == 1,
+         "etapa sem texto do roteiro não cai em `feedback`: cai em nada",
+         "um `else` que 'não acontece' para a tela acontece para a voz")
+conferir('if (stage === "question") return rIntroQuestoes(r);' in FRONT
+         and 'if (stage === "plenary") return rBlocos(r, secao).slice(0, 1);' in FRONT,
+         "plenária e questões repartem a MESMA seção, 1º bloco e os seguintes",
+         "é a divisão que a tela já fazia; a voz lia a seção inteira nas duas")
+conferir(FRONT.count("blocosDaEtapa(") == 3,
+         "e tela e voz leem a MESMA lista de blocos (definição + os dois usos)",
+         "duas listas divergem e a sala fala um texto enquanto mostra outro")
+conferir("const blocos = blocosDaEtapa(roteiro, stage);" in FRONT,
+         "a tela da etapa lê desse mapa")
+conferir('pblStage === "plenary" ? paresRelembrando' in FRONT,
+         "o card único da plenária também é falado",
+         "era o único conteúdo variável em tela que a sala não lia")
+conferir("const repete = !!chaveDosFixos && chaveDosFixos === antes.fixos;" in FRONT,
+         "trocar de etapa dentro da MESMA seção não relê o texto fixo",
+         "3 etapas compartilham a abertura e 2 duram 30s: a fala se cortava")
+conferir("onRepetir={repetirAEtapa}" in FRONT,
+         "e o ↻ remonta a fila inteira da etapa, não só o último card",
+         "a fila corrente guarda o delta; 'não ouvi' pede a etapa toda")
 conferir("audiosDaEtapa(roteiro, pblStage)" in FRONT
          and "useVozDaEtapa(filaDaVoz," in FRONT,
          "a voz é da ETAPA, não do painel visível",
