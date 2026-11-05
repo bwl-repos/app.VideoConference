@@ -183,6 +183,26 @@ export interface OpenPblComunicacao {
   meta: { stage?: string; proxima?: string; sim?: number; total?: number };
 }
 
+/** Uma fala transcrita do encontro.
+ *
+ *  `identity` é a identidade do participante no LiveKit — quem falou, por
+ *  construção: a faixa de áudio pertence a um participante. Não é diarização
+ *  por voz, que erra justamente quando duas pessoas se atropelam.
+ *
+ *  `nome` é um RETRATO do nome exibido na hora da fala: quem lê a transcrição
+ *  de um encontro antigo quer o nome de então. `motor` diz qual reconhecedor
+ *  produziu o texto — sem ele, a transcrição boa e a ruim ficam iguais na
+ *  mesma lista. */
+export interface FalaTranscrita {
+  identity: string;
+  nome: string;
+  inicio: string;
+  fim: string;
+  texto: string;
+  stage: string;
+  motor: string;
+}
+
 export interface BreakoutState {
   open: boolean;
   ends_at: string | null;
@@ -385,6 +405,17 @@ export function createVideoRoomsSDK(opts: SDKOptions) {
       comunicacoes: (roomId: string) =>
         call<{ comunicacoes: OpenPblComunicacao[] }>(
           `/api/rooms/${roomId}/openpbl/comunicacoes`),
+      /** A transcrição do encontro, em ordem, com quem falou.
+       *
+       *  SÓ PARA QUEM DIRIGE (403 para o aluno), ao contrário do histórico. A
+       *  diferença não é sigilo: isto é a fala das pessoas passada por um
+       *  reconhecedor que erra, e pôr o erro dele na tela do colega cria uma
+       *  discussão que não é a da aula — no meio dela.
+       *
+       *  Lista vazia enquanto a migration 022 não rodou. */
+      transcricao: (roomId: string) =>
+        call<{ transcricao: FalaTranscrita[] }>(
+          `/api/rooms/${roomId}/openpbl/transcricao`),
       /** Facilitador oculta/reexibe o card do class-code para todos. */
       setCodeVisible: (roomId: string, hidden: boolean) =>
         call<OpenPblClass>(`/api/rooms/${roomId}/openpbl/code-visibility`, {

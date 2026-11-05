@@ -1,0 +1,35 @@
+# Transcritor — roda numa máquina PRÓPRIA, não na da aula.
+#
+# Por que separado dos outros composes daqui: o reconhecimento de fala quer GPU,
+# e a Lightsail do app (2 vCPU / 4 GB, sem GPU) é a mesma máquina que serve a
+# sala. Um Whisper disputando CPU com o backend degradaria a aula para
+# transcrever a aula.
+#
+# Instalar:
+#   scp -r infra/deploy/transcritor agent ubuntu@<maquina>:/opt/bwl/
+#   ssh ubuntu@<maquina> 'cd /opt/bwl/transcritor && cp transcritor.env.example transcritor.env'
+#   # edite transcritor.env (NODE_SECRET e, se for Deepgram, DEEPGRAM_API_KEY)
+#   ssh ubuntu@<maquina> 'cd /opt/bwl/transcritor && docker compose up -d --build'
+#
+# Com GPU, descomente o bloco `deploy:` abaixo e builde com COM_GPU=1.
+services:
+  transcritor:
+    build:
+      context: ../agent
+      args:
+        COM_GPU: "0"        # 1 = instala as wheels CUDA (ver requirements-gpu.txt)
+    restart: unless-stopped
+    env_file: ./transcritor.env
+    volumes:
+      # O cache do modelo. Sem ele, cada deploy baixa 1,6 GB do Hugging Face de
+      # novo -- e a primeira fala da primeira aula depois do deploy espera por
+      # esse download.
+      - /opt/bwl/transcritor_cache:/cache
+    # GPU (precisa do nvidia-container-toolkit no host):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]

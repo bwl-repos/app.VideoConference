@@ -26,7 +26,7 @@ from ..auth import get_current_user, optional_user, CurrentUser
 from ..config import settings
 from ..db import pool, tem_coluna, tem_tabela
 from ..realtime.hub import hub
-from ..services import cadencia, comunicacoes, sorteio
+from ..services import cadencia, comunicacoes, presenca, sorteio
 from ..services.livekit_service import list_participant_identities
 from ..services.progresso import (
     e_avaliacao_de_pares,
@@ -236,18 +236,25 @@ async def _presentes(room_id: str) -> list[str]:
     diz quem é staff. O host sai da conta porque não vota sobre o próprio ritmo
     -- ele tem o botão.
 
+    E nem todo conectado é gente: o gravador, o transcritor e a aba que espelha
+    um grupo também aparecem na lista do SFU. Cada um deles seria um "aluno" que
+    nunca vota, isto é, um "não" permanente -- gravar a aula deixaria a cadência
+    mais difícil de passar. `services/presenca.py` é quem decide isso, com
+    prova; aqui só se aplica o filtro.
+
     Lista vazia (sala vazia, ou LiveKit fora do ar -- `list_participant_identities`
     devolve `[]` quando falha) não avança nada: `maioria` exige `total > 0`. O
     viés é o mesmo de toda a cadência, que é esperar.
     """
-    vivos = await list_participant_identities(await _nome_no_livekit(room_id))
+    vivos = presenca.so_pessoas(
+        await list_participant_identities(await _nome_no_livekit(room_id)))
     if not vivos:
         return []
     linhas = await pool().fetch(
         "SELECT user_id FROM video_room_participants "
         "WHERE room_id=$1 AND is_staff", room_id)
     staff = {l["user_id"] for l in linhas}
-    return sorted(i for i in set(vivos) if i not in staff)
+    return sorted(i for i in vivos if i not in staff)
 
 
 async def _nome_no_livekit(room_id: str) -> str:
@@ -1269,6 +1276,44 @@ async def listar_comunicacoes(room_id: str, user: CurrentUser | None = Depends(o
             "tipo": l["tipo"],
             "texto": l["texto"] or "",
             "meta": (json.loads(l["meta"]) if isinstance(l["meta"], str) else (l["meta"] or {})),
+        }
+        for l in linhas
+    ]}
+
+
+@router.get("/{room_id}/openpbl/transcricao")
+async def listar_transcricao(room_id: str, user: CurrentUser = Depends(get_current_user)):
+    """A transcrição do encontro, em ordem, com quem falou.
+
+    SÓ PARA QUEM DIRIGE, ao contrário do histórico das comunicações. A diferença
+    é deliberada e não é sobre sigilo: o histórico é um registro de atos ("a
+    turma aprovou: seguindo para Plenária"), enquanto isto é a fala das pessoas
+    passada por um reconhecedor que erra. Pôr na tela do aluno o que o colega
+    "disse" -- com o erro do ASR embutido -- cria uma discussão que não é a da
+    aula, e acontece justamente no meio dela.
+
+    Quem supervisiona precisa ver, porque o item do MVP que isto atende é
+    "primeiras execuções com supervisão": a transcrição é o que permite revisar
+    um encontro que rodou sem facilitador humano.
+
+    Devolve lista vazia enquanto a tabela não existe — publicar não aplica
+    migration, e a tela some em vez de quebrar.
+    """
+    await _require_host(user)
+    if not await tem_tabela("video_room_transcricao"):
+        return {"transcricao": []}
+    linhas = await pool().fetch(
+        "SELECT identity, nome, inicio, fim, texto, stage, motor "
+        "FROM video_room_transcricao WHERE room_id=$1 ORDER BY inicio", room_id)
+    return {"transcricao": [
+        {
+            "identity": l["identity"],
+            "nome": l["nome"] or "",
+            "inicio": l["inicio"].isoformat(),
+            "fim": l["fim"].isoformat(),
+            "texto": l["texto"],
+            "stage": l["stage"] or "",
+            "motor": l["motor"] or "",
         }
         for l in linhas
     ]}

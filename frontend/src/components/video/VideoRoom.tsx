@@ -11,7 +11,7 @@ import "../../styles/room.css";
 import { useSDK } from "../../lib/sdk-context";
 import { guestAuth } from "../../lib/guest-auth";
 import { applyBranding, type Branding } from "../../lib/branding";
-import type { BreakoutState, BreakoutGroup, OpenPblComunicacao, OpenPblStage, RoteiroSnapshot, RoteiroBlocoFixo } from "../../lib/video-rooms-sdk";
+import type { BreakoutState, BreakoutGroup, FalaTranscrita, OpenPblComunicacao, OpenPblStage, RoteiroSnapshot, RoteiroBlocoFixo } from "../../lib/video-rooms-sdk";
 import RoomChat from "./RoomChat";
 import LobbyPanel from "./LobbyPanel";
 import RemoteControlEnforcer from "./RemoteControlEnforcer";
@@ -702,6 +702,10 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
   // tempo todo. O contador no botão é o que avisa que há algo a ler.
   const [comunicacoes, setComunicacoes] = useState<OpenPblComunicacao[]>([]);
   const [histAberto, setHistAberto] = useState(false);
+  // A transcrição do encontro, com quem falou. Só quem dirige carrega (a rota
+  // devolve 403 para o aluno), e também nasce fechada.
+  const [transcricao, setTranscricao] = useState<FalaTranscrita[]>([]);
+  const [transcricaoAberta, setTranscricaoAberta] = useState(false);
   const [plenaryQ, setPlenaryQ] = useState<{ list: string[]; total: number } | null>(null); // questões da plenária reveladas até agora (recebidas pelo aluno via dados)
   const [clock, setClock] = useState("");   // horário (HH:MM) mostrado ao lado do class-code no header do facilitador
   const [showBoard, setShowBoard] = useState(false);
@@ -821,6 +825,36 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
     const off = sdk.subscribe(roomId, (event) => { if (event === "openpbl-class") load(); });
     return () => { clearInterval(iv); off(); };
   }, [scorm, roomId]);
+
+  // OpenPBL: TRANSCRIÇÃO do encontro (quem falou o quê).
+  //
+  // Só para quem dirige: a rota devolve 403 para o aluno, e pedir de lá geraria
+  // um 403 por minuto no log de cada aluno da turma.
+  //
+  // O evento `transcricao` traz a fala PRONTA, e ela é acrescentada sem nova
+  // chamada: a lista só cresce, e refazer o GET a cada frase dita custaria uma
+  // consulta por fala numa aula inteira. O polling é a rede de segurança para
+  // quem abriu a tela depois — ou perdeu o evento.
+  useEffect(() => {
+    if (!scorm || !amStaff) return;
+    const juntar = (vindas: FalaTranscrita[]) => setTranscricao((atuais) => {
+      // Dedupe por (quem, início): é a mesma chave única do banco. Sem ela, a
+      // fala chegada pelo evento apareceria DUAS vezes depois do próximo
+      // polling — e duas linhas iguais leem como a pessoa tendo repetido.
+      const porChave = new Map(atuais.map((f) => [`${f.identity}|${f.inicio}`, f]));
+      for (const f of vindas) porChave.set(`${f.identity}|${f.inicio}`, f);
+      return [...porChave.values()].sort((a, b) => a.inicio.localeCompare(b.inicio));
+    });
+    const load = () => sdk.openpbl.transcricao(roomId)
+      .then((r) => juntar(r.transcricao || []))
+      .catch(() => {});   // servidor sem a migration 022: a lista fica vazia
+    load();
+    const iv = setInterval(load, 30000);
+    const off = sdk.subscribe(roomId, (event: string, payload: any) => {
+      if (event === "transcricao" && payload) juntar([payload as FalaTranscrita]);
+    });
+    return () => { clearInterval(iv); off(); };
+  }, [scorm, amStaff, roomId]);
 
   // Auto-gera o class-code ao ENTRAR (host + sala vinculada a uma atividade OpenPBL),
   // como o pacote PRESENTATION fazia ao abrir — não depende de abrir a aba OpenPBL.
@@ -1451,6 +1485,15 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
             itens={comunicacoes}
             aberto={histAberto}
             onAlternar={() => setHistAberto((v) => !v)}
+          />
+        )}
+
+        {/* A TRANSCRIÇÃO, só para quem dirige. Ver `PainelDaTranscricao`. */}
+        {pblActive && amStaff && (
+          <PainelDaTranscricao
+            itens={transcricao}
+            aberto={transcricaoAberta}
+            onAlternar={() => setTranscricaoAberta((v) => !v)}
           />
         )}
 
@@ -2570,6 +2613,57 @@ function HistoricoDasComunicacoes({ itens, aberto, onAlternar }: {
             <li key={`${c.at}-${i}`} className="vr-hist__item">
               <span className="vr-hist__hora">{hora(c.at)}</span>
               <span className="vr-hist__texto">{frasePara(c)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/* ── Transcrição: quem falou o quê ────────────────────────────────────────────
+ *
+ * SÓ PARA QUEM DIRIGE. O histórico acima é de todos; isto não, e a razão não é
+ * sigilo: é a fala das pessoas passada por um reconhecedor que erra. Pôr na
+ * tela do aluno o que o colega "disse" abre uma discussão sobre o erro do ASR
+ * no meio da aula -- e o item do MVP que isto atende é supervisão, não legenda.
+ *
+ * A lista cresce por `transcricao`, o evento que o servidor transmite quando o
+ * agente devolve uma fala. O polling é a rede de segurança: quem abriu a tela
+ * depois ainda vê o que foi dito antes.
+ */
+function PainelDaTranscricao({ itens, aberto, onAlternar }: {
+  itens: FalaTranscrita[]; aberto: boolean; onAlternar: () => void;
+}) {
+  // Sem nada transcrito, nem o botão. Um "Transcrição (0)" numa sala onde o
+  // agente não está rodando convida ao clique e entrega lista vazia -- e, pior,
+  // sugere que ninguém falou.
+  if (!itens.length) return null;
+  const hora = (iso: string) => {
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime())
+      ? "" : d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  };
+  return (
+    <div className="vr-hist vr-transcricao">
+      <button type="button" className="vr-hist__botao" aria-expanded={aberto} onClick={onAlternar}>
+        Transcrição ({itens.length})
+      </button>
+      {aberto && (
+        <ul className="vr-hist__lista">
+          {/* Do mais RECENTE para o mais antigo, como o histórico: numa aula
+              longa a lista cresce, e o que acabou de ser dito é o que se
+              procura ao abrir. */}
+          {[...itens].reverse().map((f, i) => (
+            <li key={`${f.inicio}-${f.identity}-${i}`} className="vr-hist__item">
+              <span className="vr-hist__hora">{hora(f.inicio)}</span>
+              {/* O NOME vem antes da frase, e em destaque: a identificação é
+                  metade do valor desta lista. Sem ela isto seria uma parede de
+                  texto sem dono. */}
+              <span className="vr-hist__texto">
+                <b className="vr-transcricao__quem">{f.nome || f.identity}</b>{" "}
+                {f.texto}
+              </span>
             </li>
           ))}
         </ul>

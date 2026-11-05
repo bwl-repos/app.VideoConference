@@ -1,0 +1,14 @@
+# Transcritor — dependências base (serve em CPU e em GPU).
+#
+# `livekit` é o SDK de CLIENTE (rtc): é ele que assina faixas de áudio. O
+# `livekit-api`, que o backend usa, só gera token e fala a API de servidor — não
+# entra em sala nenhuma. Pedir o errado aqui daria `ImportError` no boot, que é
+# o lado bom; pedir os dois carregaria 40 MB sem uso.
+livekit==1.2.0
+httpx==0.27.2
+numpy>=1.26,<3
+
+# Motor local (ASR_ENGINE=whisper). Em CPU roda; em GPU precisa também do
+# `requirements-gpu.txt`. Com ASR_ENGINE=deepgram nada disto é usado — mas fica
+# instalado, porque trocar de motor é variável de ambiente, não deploy.
+faster-whisper>=1.2

@@ -43,6 +43,49 @@ def create_token(
     return at.to_jwt()
 
 
+def create_token_do_transcritor(*, room_name: str, identity: str) -> str:
+    """Token do agente que transcreve: ouve tudo, não publica nada, não aparece.
+
+    Três grants que são o desenho inteiro:
+
+    - `can_publish=False` — o transcritor não tem câmera, microfone nem tela. Um
+      agente que PODE publicar é um agente que, com um defeito, publica: já
+      aconteceu em produtos conhecidos aparecer uma câmera preta na grade de
+      todos. Aqui ele não tem a permissão para isso.
+    - `hidden=True` — não aparece para os outros participantes. Sem isso, a aula
+      ganharia um tile fantasma na grade, e o frontend precisaria de mais um
+      filtro de identidade para esconder. **Atenção:** `hidden` esconde do
+      cliente, NÃO da API de servidor — `list_participants` continua
+      devolvendo-o, e é por isso que `services/presenca.py` existe.
+    - `can_subscribe=True` — é tudo de que ele precisa: as faixas de áudio dos
+      participantes, cada uma com o dono identificado.
+
+    O TTL é longo porque um encontro longo não pode ficar sem transcrição no
+    meio; a renovação é o próprio ciclo do agente, que pede a lista de salas de
+    novo a cada rodada.
+    """
+    grants = api.VideoGrants(
+        room=room_name,
+        room_join=True,
+        can_publish=False,
+        can_subscribe=True,
+        can_publish_data=False,
+        hidden=True,
+        # `agent` e `recorder` são rótulos que o LiveKit usa no próprio
+        # inventário de participantes. Marcar o que ele é evita que alguém, lendo
+        # o painel do LiveKit, conclua que há um aluno mudo na sala.
+        agent=True,
+    )
+    at = (
+        api.AccessToken(settings.livekit_api_key, settings.livekit_api_secret)
+        .with_identity(identity)
+        .with_name("Transcrição")
+        .with_grants(grants)
+        .with_ttl(timedelta(hours=6))
+    )
+    return at.to_jwt()
+
+
 def livekit_api() -> api.LiveKitAPI:
     return api.LiveKitAPI(
         settings.livekit_host_url,

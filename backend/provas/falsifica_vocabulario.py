@@ -77,8 +77,8 @@ ESTRAGOS = [
     # parada em tudo que depende de voto.
     ("a presenca volta a ser consultada pelo uuid",
      RAIZ / "app/routers/openpbl_class.py",
-     "vivos = await list_participant_identities(await _nome_no_livekit(room_id))",
-     "vivos = await list_participant_identities(room_id)"),
+     "await list_participant_identities(await _nome_no_livekit(room_id))",
+     "await list_participant_identities(room_id)"),
 
     ("o titulo da etapa volta a ser truncado por elipse",
      RAIZ.parent / "frontend/src/styles/room.css",

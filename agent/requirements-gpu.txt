@@ -1,0 +1,14 @@
+# CUDA para o faster-whisper, por wheel — sem instalar CUDA no sistema.
+#
+# São ~700 MB (a cuDNN é a maior parte), e por isso ficam FORA do
+# `requirements.txt`: uma imagem de CPU não deve carregá-los.
+#
+# A cuDNN 9 é obrigatória com ctranslate2 >= 4.5. Com a 8 o erro aparece na
+# TRANSCRIÇÃO, não na carga do modelo (`Could not locate cudnn_ops…`) — isto é,
+# o agente sobe, entra na sala e só falha quando alguém fala. Ver
+# `modelo transcricao/LEIA-ME.md` no workspace OPENPBL, onde isso foi medido.
+#
+# Nunca instale PyTorch nesta venv/imagem: ele traz cuDNN e cuBLAS próprios e
+# a mistura quebra o ctranslate2.
+nvidia-cublas-cu12
+nvidia-cudnn-cu12>=9,<10

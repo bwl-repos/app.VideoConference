@@ -1521,6 +1521,20 @@ button.vr-seq-label:disabled { opacity: .6; cursor: default; }
 }
 .vr-hist__texto { flex: 1 1 auto; }
 
+/* ── A transcricao (quem falou o que) ──────────────────────────────────────────
+ *
+ * Reusa .vr-hist inteiro: e a mesma lista ancorada com rolagem propria. O que
+ * muda e a largura -- fala de gente e mais comprida que "A turma aprovou (7 de
+ * 9)" -- e o nome em destaque, que e metade do valor da lista.
+ *
+ * A largura e maxima, nao fixa: num notebook de 1366 uma lista de 440px fica
+ * dentro da tela; num celular em modo paisagem, nao. */
+.vr-transcricao .vr-hist__lista {
+  width: min(440px, calc(100vw - 32px));
+  max-height: 360px;
+}
+.vr-transcricao__quem { color: #e8eef6; }
+
 /* ── O relogio da etapa ────────────────────────────────────────────────────── */
 
 .vr-relogio {

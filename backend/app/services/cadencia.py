@@ -106,6 +106,27 @@ AVANCA_SOZINHA: frozenset[str] = frozenset({
 #: Quanto tempo a turma tem para responder "pode seguir?".
 JANELA_DO_VOTO = timedelta(seconds=15)
 
+#: A FRAÇÃO dos conectados que precisa dizer "sim" para a sala avançar.
+#:
+#: É o `% conectados` que o documento de premissas lista ao lado de
+#: `tempo.Etapa` e `tolerancia.Tempo` — um parâmetro de produto, não uma
+#: constante técnica. Ele estava embutido dentro de `maioria` como `sim * 2 >
+#: total`, o que dá na mesma em 0,5 e não dá em nenhum outro valor: para exigir
+#: dois terços era preciso reescrever a regra.
+#:
+#: `0.5` com comparação ESTRITA reproduz exatamente a maioria de antes — empate
+#: não avança. `prova_cadencia.py` confere isso par por par, para a
+#: generalização não ter mudado o comportamento de hoje junto.
+#:
+#: Subir este número endurece o avanço: quem não vota conta como "não", então
+#: numa turma de 12 presentes a maioria pede 7 sins e `0.66` pede 8. (Cuidado
+#: com a borda: a comparação é estrita, logo `2/3` exato pede 9 em 12, porque
+#: `8 > 8.0` é falso. Quem quiser "dois terços" na prática escreve `0.66`.)
+#: Descer para `0.0` faria a sala avançar
+#: com qualquer voto favorável — e com zero votos, nunca, porque `total > 0`
+#: continua exigido.
+LIMIAR_DE_AVANCO = 0.5
+
 #: Quanto a etapa ganha quando o voto não passa. Mais curto que a duração
 #: original: a turma já teve o período inteiro, e o que falta é um empurrão,
 #: não outra rodada completa.
@@ -171,14 +192,25 @@ def apurar(votos: dict[str, bool], presentes: list[str]) -> tuple[int, int]:
     return sins, len(presentes_unicos)
 
 
-def maioria(sim: int, total: int) -> bool:
-    """Maioria ESTRITA dos presentes.
+def maioria(sim: int, total: int, limiar: float = LIMIAR_DE_AVANCO) -> bool:
+    """Passou do limiar de avanço (por padrão, maioria estrita dos presentes)?
 
     Empate não avança: com 2 de 4 o encontro fica. Metade da turma dizendo
     "ainda não" é motivo suficiente para esperar — e o viés para esperar é o
     desta cadência inteira.
+
+    `limiar` é o `% conectados` do documento de premissas (ver
+    `LIMIAR_DE_AVANCO`). Entra como parâmetro com padrão, e não lido do módulo
+    dentro do corpo, para a prova poder exercitar outros valores sem mexer em
+    estado global — a mesma razão pela qual o relógio de `decidir` é parâmetro.
+
+    Sala vazia nunca avança, e são DUAS travas, não uma: `total > 0` e a
+    comparação ESTRITA. A estrita é a que de fato segura -- `0 > 0.0` é falso
+    com qualquer limiar --, e trocá-la por `>=` faria uma sala sem ninguém
+    avançar sozinha etapa por etapa até o fim. `total > 0` é a trava explícita,
+    que diz a intenção e protege de um limiar negativo.
     """
-    return total > 0 and sim * 2 > total
+    return total > 0 and sim > total * limiar
 
 
 def precisa_de_presenca(estado: Estado, agora: datetime) -> bool:
