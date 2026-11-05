@@ -74,22 +74,45 @@ FONTE = os.path.join(AQUI, "backend-mermaid.md")
 MANIFESTO = os.path.join(AQUI, ".miro_manifesto.json")
 
 BASE = "https://api.miro.com"
-#: As formas de fluxograma vivem no caminho experimental. O estável
-#: (`/v2/.../shapes`) existe, mas a lista de formas dele não tem as de
-#: fluxograma -- ver a docstring.
-ROTA_FORMA = "/v2-experimental/boards/%s/shapes"
+#: Rota ESTÁVEL de forma. A experimental (`/v2-experimental/.../shapes`) é a
+#: única com as formas `flow_chart_*`, mas sai caro: o item que nasce nela não
+#: é lido nem apagado pela rota genérica (400 "Operation not supported"), e a
+#: listagem de itens devolve `shape: None` para ele -- parece caixa vazia e não
+#: é. `rectangle` e `rhombus` existem na estável e dizem a mesma coisa, então o
+#: desenho inteiro vive aqui e a assimetria some.
+ROTA_FORMA = "/v2/boards/%s/shapes"
+ROTA_FORMA_EXP = "/v2-experimental/boards/%s/shapes"
 ROTA_LOTE = "/v2/boards/%s/items/bulk"
 ROTA_CONECTOR = "/v2/boards/%s/connectors"
 ROTA_ITEM = "/v2/boards/%s/items/%s"
 
-#: As 16 cores que `fillColor` aceita. Qualquer outra é 400.
-PALETA = {
-    "cinza": "#f5f6f8", "verde_claro": "#d5f692", "verde": "#93d275",
-    "turquesa": "#67c6c0", "azul": "#23bfe7", "azul_claro": "#a6ccf5",
-    "anil": "#7b92ff", "amarelo": "#fff9b1", "ouro": "#f5d128",
-    "laranja": "#ff9d48", "vermelho": "#f16c7f", "rosa": "#ea94bb",
-    "roxo": "#b384bb", "preto": "#000000",
+#: A documentação lista 16 valores para `fillColor`. **Não é o que a API faz**:
+#: medido contra o quadro, `#ffe3e3` é aceito e guardado como está, nas três
+#: rotas (estável, lote e experimental). A lista do schema é o seletor da
+#: interface, não uma validação. Por isso a paleta abaixo é a dos quadros do
+#: time, e não a das 16.
+CONTEINER = {
+    "verde":    ("#dcf3e4", "#9ccfb0"),
+    "cinza":    ("#ececec", "#c2c2c2"),
+    "lavanda":  ("#e3e3fb", "#b3b3ee"),
+    "rosa":     ("#fcdcdc", "#eeaeae"),
+    "areia":    ("#fdf3d7", "#e8cf90"),
 }
+CAIXA = {
+    "verde":    "#cdeed9",
+    "verde_forte": "#8fd4a8",
+    "amarelo":  "#ffeaa0",
+    "lavanda":  "#d2d2f7",
+    "branco":   "#ffffff",
+    "cinza":    "#ededed",
+    "rosa":     "#f8c9c9",
+    "laranja":  "#ffd9b0",
+}
+
+#: Qual contêiner envolve cada diagrama, na ordem do arquivo-fonte. Agrupar por
+#: assunto e não por índice: a cadência são dois diagramas e divide a cor, para
+#: quem olhar de longe ver que são o mesmo assunto.
+COR_DO_DIAGRAMA = ["lavanda", "verde", "rosa", "rosa", "areia", "verde", "lavanda"]
 
 #: Como cada caixa é pintada. É uma legenda DE VERDADE: a mesma codificação
 #: repetida nos sete diagramas, e por isso vale a pena existir. A ordem
@@ -98,23 +121,34 @@ PALETA = {
 #: Editar aqui muda os sete quadros de uma vez.
 REGRAS_DE_COR = [
     ("decisao",   None,                                                   "amarelo"),
-    ("banco",     ("UPDATE", "INSERT", "UPSERT", "SELECT", "grava"),       "verde_claro"),
+    ("banco",     ("UPDATE", "INSERT", "UPSERT", "SELECT", "grava"),      "verde"),
     ("recusa",    ("403", "404", "401", "502", "WARNING", "não avança",
-                   "NÃO avança", "nada -", "nada<", "erro"),              "vermelho"),
+                   "NÃO avança", "nada -", "nada<", "erro"),              "rosa"),
     ("externo",   ("integration", "LiveKit", "SFU", "S3", "webhook",
-                   "egress", "ContentBuilder", "LRS", "Rise", "chat."),   "roxo"),
+                   "egress", "ContentBuilder", "LRS", "Rise", "chat."),   "lavanda"),
     ("host",      ("host:", "facilitador", "participante", "aluno:"),     "laranja"),
 ]
-COR_PADRAO = "azul_claro"
+COR_PADRAO = "branco"
 COR_CILINDRO = "cinza"
+
+#: A cor da SETA, pelo rótulo dela. Os quadros do time usam fluxo colorido --
+#: laranja é o que o facilitador dispara, roxo é dado voltando. Mesma ideia.
+REGRAS_DE_TRACO = [
+    (("facilitador", "host", "aluno", "participante", "clica"), "#e0802f"),
+    (("LRS", "retorno", "webhook", "broadcast", "mp4", "token",
+      "devolve", "entra na sala"),                              "#7b61c9"),
+    (("não", "NÃO", "403", "404", "401", "502", "falha", "erro"), "#c0504d"),
+]
+TRACO_PADRAO = "#5a5a5a"
 
 #: Geometria da grade. Generosa de propósito: quem abre o quadro vai arrastar
 #: caixa, e caixa colada em caixa não dá para arrastar.
-L_CAIXA, A_CAIXA = 300, 120
-PASSO_RANK = 260          # entre níveis (sentido do fluxo)
-PASSO_ORDEM = 360         # entre irmãos do mesmo nível
-GAP_DIAGRAMA = 900        # entre um diagrama e o seguinte
+L_CAIXA, A_CAIXA = 300, 96
+PASSO_RANK = 250          # entre níveis (sentido do fluxo)
+PASSO_ORDEM = 370         # entre irmãos do mesmo nível
+GAP_DIAGRAMA = 700        # entre um diagrama e o seguinte
 ALTURA_TITULO = 120
+MARGEM_CONTEINER = 150    # folga entre a caixa mais externa e a borda do bloco
 
 
 # ── parser do subconjunto de mermaid que nós escrevemos ───────────────────────
@@ -300,19 +334,54 @@ def posicionar(d: Diagrama) -> dict[str, tuple[float, float]]:
 
 def cor_de(d: Diagrama, nid: str) -> str:
     if d.formas[nid] == "cilindro":
-        return PALETA[COR_CILINDRO]
+        return CAIXA[COR_CILINDRO]
     if d.formas[nid] == "decisao":
-        return PALETA["amarelo"]
+        return CAIXA["amarelo"]
     rotulo = d.rotulos[nid]
     for _, chaves, cor in REGRAS_DE_COR:
         if chaves and any(k in rotulo for k in chaves):
-            return PALETA[cor]
-    return PALETA[COR_PADRAO]
+            return CAIXA[cor]
+    return CAIXA[COR_PADRAO]
 
 
-FORMA_MIRO = {"processo": "flow_chart_process",
-              "decisao": "flow_chart_decision",
-              "cilindro": "can"}
+def cor_do_traco(rotulo: str) -> str:
+    for chaves, cor in REGRAS_DE_TRACO:
+        if any(k in rotulo for k in chaves):
+            return cor
+    return TRACO_PADRAO
+
+
+FORMA_MIRO = {"processo": "rectangle", "decisao": "rhombus", "cilindro": "can"}
+
+#: Primeira linha em caixa alta só quando ela é um NOME curto. As caixas dos
+#: quadros do time são assim ("LINK PACOTE 1", "ATIVIDADE AGENDADA"), mas
+#: passar isso por cima de `GET /api/rooms/:id/openpbl` estraga o que importa
+#: na linha -- rota, identificador e código não têm caixa alta.
+_NAO_GRITA = set("/_(:=")
+
+
+def html_da_caixa(texto: str) -> str:
+    """Título em negrito, detalhe em corpo menor -- o padrão dos quadros.
+
+    A API **preserva HTML** em `data.content`: medido, `<p><b>…</b></p>` e
+    `<span style="font-size:10px">` voltam intactos na leitura. Sem isso, a
+    caixa seria um bloco de texto de um tamanho só.
+    """
+    linhas = [l.strip() for l in texto.split("\n") if l.strip()]
+    if not linhas:
+        return ""
+    cabeca = linhas[0]
+    if len(cabeca) <= 30 and not (_NAO_GRITA & set(cabeca)):
+        cabeca = cabeca.upper()
+    saida = "<p><b>%s</b></p>" % _escapar(cabeca)
+    if linhas[1:]:
+        saida += ('<p><span style="font-size:10px">%s</span></p>'
+                  % "<br>".join(_escapar(l) for l in linhas[1:]))
+    return saida
+
+
+def _escapar(t: str) -> str:
+    return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 # ── cliente HTTP ──────────────────────────────────────────────────────────────
@@ -356,17 +425,31 @@ class Miro:
                 raise SystemExit("rede: %s" % e)
         raise SystemExit("desisti depois de 5 tentativas em %s" % rota)
 
-    def forma(self, *, conteudo, forma, x, y, w, h, cor) -> str:
+    def forma(self, *, conteudo, forma, x, y, w, h, cor,
+              borda="#3d3d3d", largura_borda="1.0", opacidade="1.0",
+              estilo_borda="normal", fonte="11") -> str:
         r = self._pedir("POST", ROTA_FORMA % self.board, {
             "data": {"content": conteudo, "shape": forma},
-            "style": {"fillColor": cor, "borderColor": "#1a1a1a",
-                      "borderWidth": "1.0", "color": "#1a1a1a",
-                      "fontFamily": "arial", "fontSize": "12",
+            "style": {"fillColor": cor, "fillOpacity": opacidade,
+                      "borderColor": borda, "borderWidth": largura_borda,
+                      "borderStyle": estilo_borda, "color": "#1a1a1a",
+                      "fontFamily": "arial", "fontSize": fonte,
                       "textAlign": "center", "textAlignVertical": "middle"},
             "position": {"x": x, "y": y, "origin": "center"},
             "geometry": {"width": w, "height": h},
         })
         return str(r.get("id"))
+
+    def conteiner(self, *, x, y, w, h, cor) -> str:
+        """O bloco pastel que agrupa um diagrama.
+
+        Criado ANTES das caixas de propósito: no Miro a ordem de criação é a
+        ordem de empilhamento, e um contêiner criado depois cobriria tudo que
+        ele deveria agrupar.
+        """
+        fundo, borda = CONTEINER[cor]
+        return self.forma(conteudo="", forma="rectangle", x=x, y=y, w=w, h=h,
+                          cor=fundo, borda=borda, largura_borda="2.0")
 
     def texto(self, *, conteudo, x, y, largura, tamanho="24") -> str:
         r = self._pedir("POST", ROTA_LOTE % self.board, [{
@@ -387,13 +470,15 @@ class Miro:
         eles e devolve o rótulo como perdido. Fingir que a seta tem rótulo é o
         único resultado inaceitável aqui.
         """
+        cor = cor_do_traco(rotulo)
         base = {"startItem": {"id": a, "snapTo": "auto"},
                 "endItem": {"id": b, "snapTo": "auto"},
                 "shape": "elbowed",
-                "style": {"strokeColor": "#4a4a4a", "strokeWidth": "1.0"}}
+                "style": {"strokeColor": cor, "strokeWidth": "1.0",
+                          "color": cor, "fontSize": "11"}}
         rico = json.loads(json.dumps(base))
         if rotulo:
-            rico["captions"] = [{"content": rotulo[:200]}]
+            rico["captions"] = [{"content": _escapar(rotulo.replace("\n", " "))[:200]}]
         if tracejada:
             rico["style"]["strokeStyle"] = "dashed"
         try:
@@ -420,7 +505,7 @@ class Miro:
         except MiroErro as e:
             if e.codigo != 400:
                 raise
-            self._pedir("DELETE", (ROTA_FORMA % self.board) + "/" + item_id)
+            self._pedir("DELETE", (ROTA_FORMA_EXP % self.board) + "/" + item_id)
 
 
 class MiroErro(Exception):
@@ -508,8 +593,8 @@ def conferir() -> int:
         ok(not sujos, "nenhum rótulo com seta dentro",
            "fatiamento errado em %s" % sujos[:2])
 
-        fora = [cor_de(d, n) for n in d.rotulos if cor_de(d, n) not in PALETA.values()]
-        ok(not fora, "toda cor está na paleta que a API aceita", str(set(fora)))
+        fora = [cor_de(d, n) for n in d.rotulos if cor_de(d, n) not in CAIXA.values()]
+        ok(not fora, "toda cor sai da paleta deste arquivo", str(set(fora)))
 
         ok(all(f in FORMA_MIRO for f in d.formas.values()),
            "toda forma tem equivalente no Miro",
@@ -517,6 +602,15 @@ def conferir() -> int:
 
         longos = [n for n, r in d.rotulos.items() if len(r) > 200]
         ok(not longos, "nenhum rótulo acima de 200 caracteres", str(longos))
+
+        # O HTML é montado por nós e vai inteiro para a API: tag aberta e não
+        # fechada é caixa com markup à mostra no quadro.
+        quebrado = [n for n in d.rotulos
+                    if html_da_caixa(d.rotulos[n]).count("<p>")
+                    != html_da_caixa(d.rotulos[n]).count("</p>")]
+        ok(not quebrado, "o HTML de toda caixa fecha o que abre", str(quebrado))
+        ok(all(html_da_caixa(r).strip() for r in d.rotulos.values()),
+           "nenhuma caixa gera HTML vazio")
 
     print()
     if falhas:
@@ -621,8 +715,22 @@ def main() -> int:
             max_y = max(y for _, y in pos.values())
             min_x = min(x for x, _ in pos.values())
 
-            tid = api.texto(conteudo=d.titulo, x=min_x, y=y_base - ALTURA_TITULO,
-                            largura=900)
+            max_x = max(x for x, _ in pos.values())
+            # O contêiner PRIMEIRO: ordem de criação é ordem de empilhamento.
+            larg = (max_x - min_x) + L_CAIXA + 2 * MARGEM_CONTEINER
+            alt = (max_y - min_y) + A_CAIXA + 2 * MARGEM_CONTEINER
+            centro_x = (min_x + max_x) / 2
+            centro_y = y_base + (max_y - min_y) / 2
+            cid = api.conteiner(x=centro_x, y=centro_y, w=larg, h=alt,
+                                cor=COR_DO_DIAGRAMA[(n - 1) % len(COR_DO_DIAGRAMA)])
+            criados.append(cid)
+
+            # Título à esquerda, acima da borda do bloco -- como nos quadros
+            # do time, onde "CORE API" e "LMS" ficam fora da caixa.
+            esquerda = centro_x - larg / 2
+            tid = api.texto(
+                conteudo="<p><b>%s</b></p>" % _escapar(d.titulo.upper()),
+                x=esquerda + 450, y=centro_y - alt / 2 - 60, largura=900)
             if tid:
                 criados.append(tid)
 
@@ -630,9 +738,11 @@ def main() -> int:
             for nid, (x, y) in pos.items():
                 forma = d.formas[nid]
                 ids[nid] = api.forma(
-                    conteudo=d.rotulos[nid], forma=FORMA_MIRO[forma],
-                    x=x, y=y_base + (y - min_y), w=L_CAIXA,
-                    h=A_CAIXA + (20 if forma == "decisao" else 0),
+                    conteudo=html_da_caixa(d.rotulos[nid]),
+                    forma=FORMA_MIRO[forma],
+                    x=x, y=y_base + (y - min_y),
+                    w=L_CAIXA + (40 if forma == "decisao" else 0),
+                    h=A_CAIXA + (44 if forma == "decisao" else 0),
                     cor=cor_de(d, nid))
                 criados.append(ids[nid])
                 time.sleep(0.12)
