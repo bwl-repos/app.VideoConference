@@ -405,7 +405,22 @@ class Miro:
             return str(r.get("id")), rotulo
 
     def apagar(self, item_id: str):
-        self._pedir("DELETE", ROTA_ITEM % (self.board, item_id))
+        """Apaga pela rota genérica e, no 400, pela experimental.
+
+        A forma de fluxograma é assimétrica: nasce em
+        `/v2-experimental/.../shapes`, e a rota genérica de item responde 400
+        "Operation not supported" tanto para LER quanto para APAGAR. Medido
+        contra a API: `--limpar` tirou os 14 conectores e deixou as 14 caixas
+        no quadro. Sem este recuo, desfazer fica pela metade e volta a ser
+        trabalho manual -- que é exatamente o que o manifesto existe para
+        evitar.
+        """
+        try:
+            self._pedir("DELETE", ROTA_ITEM % (self.board, item_id))
+        except MiroErro as e:
+            if e.codigo != 400:
+                raise
+            self._pedir("DELETE", (ROTA_FORMA % self.board) + "/" + item_id)
 
 
 class MiroErro(Exception):
@@ -582,6 +597,21 @@ def main() -> int:
     criados = manifesto.setdefault(args.board, [])
     perdidos: list[str] = []
     y_base = 0.0
+
+    # A LEGENDA. A mesma codificação de cor se repete nos sete diagramas, e é
+    # isso que a torna legenda e não enfeite: sem ela, quem abre o quadro vê
+    # caixas colaridas e não sabe que amarelo quer dizer decisão.
+    if not args.so:
+        legenda = ("Backend da VideoConference BWL · gerado de "
+                   "docs/backend-mermaid.md\n\n"
+                   "amarelo = decisão   ·   verde = escrita no banco   ·   "
+                   "roxo = chamada a serviço externo\n"
+                   "vermelho = recusa ou caminho que não avança   ·   "
+                   "laranja = ação de pessoa   ·   cinza = banco / S3\n"
+                   "losango = decisão   ·   cilindro = armazenamento")
+        lid = api.texto(conteudo=legenda, x=0, y=-600, largura=1400, tamanho="18")
+        if lid:
+            criados.append(lid)
 
     try:
         for n, d in enumerate(diagramas, 1):
