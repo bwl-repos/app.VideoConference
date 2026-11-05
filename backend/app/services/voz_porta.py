@@ -93,11 +93,11 @@ async def preparar(roteiro) -> dict[str, int]:
     if not configurado():
         logger.info("[voz] VOZ_CORE_URL/VOZ_CORE_TOKEN ausentes: encontro sem audio")
         return {"desligado": 1}
-    paragrafos = voz.paragrafos_do_roteiro(roteiro)
-    if not paragrafos:
+    textos = voz.textos_do_roteiro(roteiro)
+    if not textos:
         return {"pedidos": 0, "prontos": 0, "falhas": 0, "ja_tinha": 0}
     contas = await voz.garantir(
-        paragrafos, tem=tem, sintetizar=sintetizar, guardar=guardar
+        textos, tem=tem, sintetizar=sintetizar, guardar=guardar
     )
-    logger.info("[voz] %s paragrafos: %s", len(paragrafos), contas)
+    logger.info("[voz] %s textos: %s", len(textos), contas)
     return contas

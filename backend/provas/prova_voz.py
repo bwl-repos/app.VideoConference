@@ -120,7 +120,15 @@ ROTEIRO = {
                 {"paragrafos": ["  Digite o class code   no chat.  ", "Uma questão por vez."]},
             ],
         },
-    ]
+    ],
+    # O que VARIA por episódio. `bannerFundo` é chave de bucket, não prosa.
+    "campos": {
+        "sinopseParte1": "Carlos lida com as consequências de um dia desorganizado.",
+        "sinopseParte2": "",
+        "questoesOrientadoras": ["O que você faria?", "", "Quem decide isso?"],
+        "bannerFundo": "banners/ep5-fundo.png",
+        "relembrandoEpisodio": "Uma questão por vez.",   # IGUAL a um texto fixo
+    },
 }
 
 print("A sala fala as instruções fixas do encontro")
@@ -166,6 +174,29 @@ conferir(voz.paragrafos_do_roteiro(None) == []
          "sala antiga sem roteiro não pode derrubar a criação de sala")
 
 print()
+print("2b) e o que varia por episódio")
+print()
+
+campos = voz.textos_dos_campos(ROTEIRO)
+conferir("Carlos lida com as consequências de um dia desorganizado." in campos,
+         "o campo de texto entra")
+conferir("O que você faria?" in campos and "Quem decide isso?" in campos,
+         "cada item de um campo de LISTA entra")
+conferir("" not in campos and len(campos) == 4,
+         "item vazio não vira pedido ao Polly", str(len(campos)))
+conferir("banners/ep5-fundo.png" not in campos
+         and "bannerFundo" in voz.CAMPOS_SEM_VOZ,
+         "`bannerFundo` NÃO entra",
+         "é chave de bucket: a sala leria 'banners barra ep5 ponto png'")
+
+tudo = voz.textos_do_roteiro(ROTEIRO)
+conferir(len(tudo) == len(set(tudo)),
+         "fixos + campos, sem repetir",
+         "'Uma questão por vez.' está nos dois e é UMA síntese")
+conferir(set(tudo) == set(paragrafos) | set(campos),
+         "e nada se perde no caminho")
+
+print()
 print("3) o alinhamento entre a voz e o parágrafo (o defeito que parece funcionar)")
 print()
 
@@ -195,10 +226,26 @@ conferir(tbloco["audios"] == ["", "", ""] and len(tbloco["paragrafos"]) == 3,
          "assinatura que falha deixa a sala MUDA, não quebrada",
          "um encontro sem voz é um encontro; um travado não é")
 
+vozes = marcado["audiosDosCampos"]
+conferir(vozes["sinopseParte1"] == "URL:" + voz.chave(ROTEIRO["campos"]["sinopseParte1"]),
+         "campo de texto ganha UMA voz")
+conferir(isinstance(vozes["questoesOrientadoras"], list)
+         and len(vozes["questoesOrientadoras"]) == 3
+         and vozes["questoesOrientadoras"][1] == "",
+         "campo de lista ganha uma lista do MESMO tamanho, com vazio no vazio",
+         "a tela casa item e voz por índice")
+conferir("bannerFundo" not in vozes and "sinopseParte2" not in vozes,
+         "imagem e campo vazio ficam de fora")
+conferir(marcado["campos"]["sinopseParte1"] == ROTEIRO["campos"]["sinopseParte1"],
+         "e `campos` continua sendo o TEXTO",
+         "voz dentro de `campos` apareceria escrita como link na sinopse")
+
 # O que a leitura calcula tem de ser o que o aquecimento gravou.
 lidas = {u[4:] for s in marcado["secoes"] for b in s["blocosFixos"]
          for u in b["audios"] if u}
-escritas = {voz.chave(p) for p in paragrafos}
+lidas |= {u[4:] for v in vozes.values()
+          for u in (v if isinstance(v, list) else [v]) if u}
+escritas = {voz.chave(t) for t in voz.textos_do_roteiro(ROTEIRO)}
 conferir(lidas == escritas,
          "a chave que a sala LÊ é a mesma que o aquecimento ESCREVE",
          "as duas se recalculam do texto; divergir deixaria a sala muda sempre")
@@ -298,13 +345,27 @@ print()
 
 conferir("audios?: string[]" in SDK,
          "o SDK declara a voz de cada parágrafo")
+conferir("audiosDosCampos?: Record<string, string | string[]>;" in SDK,
+         "e a voz dos campos, com a MESMA forma do campo")
+conferir("return rListaComVoz(r, name).map((p) => p.texto);" in FRONT,
+         "a tela filtra texto e voz juntos, num lugar só",
+         "dois filtros deslocariam um do outro e a sala leria o card errado")
+conferir("setFilaDaVoz(cards.slice(antes.ate, shownCount).filter(Boolean));" in FRONT,
+         "revelar um card fala SÓ o card que entrou",
+         "a fila inteira recomeçaria a etapa a cada clique do facilitador")
+conferir("if (antes.stage !== pblStage) {" in FRONT,
+         "e trocar de etapa fala os fixos mais o que já está revelado")
 conferir(FRONT.count('stage === "synopsis" ? "revisitando"') == 1,
          "existe UM mapa de etapa→seção, não dois",
          "duas cópias divergem e a sala fala uma seção enquanto mostra outra")
+conferir('|| stage === "amplify_code" ? "abertura"' in FRONT,
+         "e `amplify_code` cai em `abertura`, com as de registro",
+         "sem isso ela cairia no else final e a tela mostraria FEEDBACK "
+         "no meio do registro de presença")
 conferir("const secao = secaoDaEtapa(stage) ?? " in FRONT,
          "e a tela da etapa lê desse mapa")
 conferir("audiosDaEtapa(roteiro, pblStage)" in FRONT
-         and "useVozDaEtapa(vozDaEtapa," in FRONT,
+         and "useVozDaEtapa(filaDaVoz," in FRONT,
          "a voz é da ETAPA, não do painel visível",
          "o painel muda com o papel; a fala do facilitador era a mesma para todos")
 conferir("!isBroadcast(identity || \"\")" in FRONT,
@@ -316,9 +377,9 @@ conferir("audio.play().catch(() => pula(i))" in FRONT,
 conferir("if (!morto && i === atual)" in FRONT,
          "e `ended` + recusa na mesma fala não pulam duas",
          "sem o índice, uma instrução seria engolida")
-conferir("{pblActive && amStaff && vozDaEtapa.length > 0 && (" in FRONT,
+conferir("{pblActive && amStaff && temVozNaEtapa && (" in FRONT,
          "o controle de silenciar/repetir é só de quem dirige",
-         "e não aparece em etapa sem texto fixo")
+         "e não aparece em etapa sem nada a falar")
 
 print()
 print("falhas: %d" % falhas)

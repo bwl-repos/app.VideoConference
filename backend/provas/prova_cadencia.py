@@ -224,6 +224,22 @@ conferir(set(DURACAO_DA_ETAPA) == set(ORDEM),
          "CONTROLE: e toda etapa tem duração declarada (ou `None`)",
          "faltando: %s" % (set(ORDEM) - set(DURACAO_DA_ETAPA) or "nenhuma"))
 
+#: A TERCEIRA cópia: `STEPS` no frontend. Faltava-lhe `amplify_code` (05/11/2026)
+#: e o sintoma foi exatamente o que esta prova existe para impedir: no modo
+#: automático a sala entrava na etapa, a tela não a reconhecia, caía para
+#: `session_start` e anunciava "Abertura" — com o registro de presença já
+#: encerrado. Nada deu erro; a tela só passou a mentir sobre onde o encontro
+#: estava.
+front = (RAIZ.parent / "frontend/src/components/video/VideoRoom.tsx").read_text(encoding="utf-8")
+corpo_steps = re.search(r"const STEPS: StepDef\[\] = \[(.*?)\n\];", front, re.S).group(1)
+da_tela = tuple(re.findall(r'\{ id: "([a-z_]+)"', corpo_steps))
+conferir(da_tela == ORDEM,
+         "a ordem da cadência bate com `STEPS` da tela",
+         "tela: %d etapas; cadência: %d%s" % (
+             len(da_tela), len(ORDEM),
+             "" if da_tela == ORDEM else
+             " — só na cadência: %s" % (set(ORDEM) - set(da_tela) or "nenhuma")))
+
 print()
 print("9) as funções auxiliares, nos extremos")
 print()

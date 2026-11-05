@@ -1,8 +1,16 @@
-"""A sala FALA as instruções fixas do encontro, em vez de só mostrá-las.
+"""A sala FALA o encontro, em vez de só mostrá-lo.
 
 É o item "texto + áudio" da facilitação autônoma: o que o facilitador humano
-lia em voz alta ("aponte o smartphone para o QR Code...") passa a ser tocado
-pela própria sala quando a etapa abre.
+lia em voz alta passa a ser tocado pela própria sala. São duas fontes:
+
+- o texto FIXO das seções ("aponte o smartphone para o QR Code..."), igual em
+  todo episódio, falado quando a etapa abre;
+- os campos que VARIAM por episódio (sinopse, questões, riscos), falados no
+  momento em que cada card é revelado — não antes, senão a sala entregaria a
+  resposta da pergunta que o facilitador ainda não fez.
+
+As duas usam o MESMO mecanismo, e é por isso que a segunda não custou desenho
+nenhum: a chave do mp3 é o hash do texto, e texto é texto.
 
 ## Quem sintetiza não é este serviço
 
@@ -78,6 +86,57 @@ def chave(texto: str) -> str:
     return f"{PREFIXO}/{digest}.mp3"
 
 
+#: Campos do roteiro que NÃO viram voz.
+#:
+#: `bannerFundo` guarda uma chave de bucket, não prosa: mandá-la ao Polly
+#: pagaria para o encontro ouvir "banners barra 3f2a ponto png". É o único
+#: campo de imagem do `schema.ts`; os demais são texto escrito para ser lido.
+#:
+#: O que se FALA de fato é decisão da tela, que já decide o que mostrar. Aqui
+#: só se garante que o áudio exista — sintetizar um campo que a sala nunca toca
+#: custa centavos uma vez; faltar o áudio de um que ela toca é um encontro mudo
+#: no meio.
+CAMPOS_SEM_VOZ: frozenset[str] = frozenset({"bannerFundo"})
+
+
+def textos_dos_campos(roteiro: Any) -> list[str]:
+    """O conteúdo que VARIA por episódio: sinopse, questões, riscos.
+
+    Aceita string ou lista de strings, que é o formato que o roteiro guarda
+    (`_sanitize_roteiro`, no CoreService, descarta qualquer outra coisa).
+    """
+    if not isinstance(roteiro, dict):
+        return []
+    campos = roteiro.get("campos")
+    if not isinstance(campos, dict):
+        return []
+    fora: list[str] = []
+    for nome, valor in campos.items():
+        if nome in CAMPOS_SEM_VOZ:
+            continue
+        itens = valor if isinstance(valor, list) else [valor]
+        for item in itens:
+            limpo = normalizar(str(item or ""))
+            if limpo:
+                fora.append(limpo)
+    return fora
+
+
+def textos_do_roteiro(roteiro: Any) -> list[str]:
+    """Tudo que a sala pode precisar falar: texto fixo E campo do episódio.
+
+    Sem repetir — é o que o aquecimento pede ao sintetizador, e cada pedido é
+    uma chamada paga.
+    """
+    vistos: set[str] = set()
+    fora: list[str] = []
+    for texto in paragrafos_do_roteiro(roteiro) + textos_dos_campos(roteiro):
+        if texto not in vistos:
+            vistos.add(texto)
+            fora.append(texto)
+    return fora
+
+
 def paragrafos_do_roteiro(roteiro: Any) -> list[str]:
     """Todos os parágrafos fixos do roteiro, na ordem, SEM repetir.
 
@@ -134,7 +193,39 @@ def com_audios(roteiro: Any, assinar: Callable[[str], str]) -> Any:
                 except Exception:   # noqa: BLE001
                     audios.append("")   # voz indisponível não pode quebrar a sala
             bloco["audios"] = audios
+
+    # E a voz dos campos que variam por episódio, num mapa IRMÃO de `campos`.
+    #
+    # Irmão, e não dentro de `campos`: a tela lê `campos` para exibir, e enfiar
+    # URL no meio dos valores faria a sinopse aparecer escrita como link. A
+    # forma acompanha a do valor — texto vira texto, lista vira lista do mesmo
+    # tamanho, com vazio onde o item é vazio (mesmo alinhamento dos parágrafos).
+    campos = roteiro.get("campos")
+    if isinstance(campos, dict):
+        vozes: dict[str, Any] = {}
+        for nome, valor in campos.items():
+            if nome in CAMPOS_SEM_VOZ:
+                continue
+            if isinstance(valor, list):
+                vozes[nome] = [_assinar_texto(item, assinar) for item in valor]
+            else:
+                url = _assinar_texto(valor, assinar)
+                if url:
+                    vozes[nome] = url
+        if vozes:
+            roteiro["audiosDosCampos"] = vozes
     return roteiro
+
+
+def _assinar_texto(valor: Any, assinar: Callable[[str], str]) -> str:
+    """A URL da voz de um texto, ou vazio — nunca uma exceção."""
+    limpo = normalizar(str(valor or ""))
+    if not limpo:
+        return ""
+    try:
+        return assinar(chave(limpo))
+    except Exception:   # noqa: BLE001
+        return ""
 
 
 async def garantir(

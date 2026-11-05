@@ -148,6 +148,15 @@ export interface RoteiroSnapshot {
   campos?: Record<string, string | string[]>;
   /** Textos fixos por seção, na ordem do roteiro. */
   secoes?: Array<{ key: string; titulo: string; blocosFixos: RoteiroBlocoFixo[] }>;
+  /**
+   * A voz dos campos que variam por episódio — mapa IRMÃO de `campos`, com a
+   * MESMA forma: campo de texto traz uma URL, campo de lista traz uma lista do
+   * mesmo tamanho (vazio onde o item é vazio).
+   *
+   * Irmão, e não dentro de `campos`: a tela lê `campos` para EXIBIR, e uma URL
+   * no meio dos valores apareceria escrita na sinopse.
+   */
+  audiosDosCampos?: Record<string, string | string[]>;
 }
 
 /** Etapas do sequenciador do facilitador (espelham "ETAPAS E ATIVIDADES DO ENCONTRO"). */

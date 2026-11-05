@@ -153,10 +153,16 @@ ESTRAGOS = [
      '          : stage === "release_risks" ? "analise"\n'
      '            : "feedback";'),
 
+    ("`amplify_code` volta a cair no else e mostra a secao de FEEDBACK",
+     FRONT,
+     '  return stage === "registration_open" || stage === "registration_close"\n'
+     '    || stage === "amplify_code" ? "abertura"',
+     '  return stage === "registration_open" || stage === "registration_close" ? "abertura"'),
+
     ("a aba espelho do grupo passa a falar junto (instrucao em dobro)",
      FRONT,
-     '  const voz = useVozDaEtapa(vozDaEtapa, pblActive && !isBroadcast(identity || ""));',
-     "  const voz = useVozDaEtapa(vozDaEtapa, pblActive);"),
+     '  const voz = useVozDaEtapa(filaDaVoz, pblActive && !isBroadcast(identity || ""));',
+     "  const voz = useVozDaEtapa(filaDaVoz, pblActive);"),
 
     ("a recusa do autoplay deixa de seguir para a proxima fala",
      FRONT,
@@ -170,8 +176,40 @@ ESTRAGOS = [
 
     ("o controle de silenciar aparece para o aluno",
      FRONT,
-     "        {pblActive && amStaff && vozDaEtapa.length > 0 && (\n          <ControleDaVoz",
-     "        {pblActive && vozDaEtapa.length > 0 && (\n          <ControleDaVoz"),
+     "        {pblActive && amStaff && temVozNaEtapa && (\n          <ControleDaVoz",
+     "        {pblActive && temVozNaEtapa && (\n          <ControleDaVoz"),
+
+    # ── O conteudo que varia por episodio ───────────────────────────────────
+    ("a chave do banner (imagem) passa a ser mandada ao Polly",
+     VOZ,
+     'CAMPOS_SEM_VOZ: frozenset[str] = frozenset({"bannerFundo"})',
+     "CAMPOS_SEM_VOZ: frozenset[str] = frozenset()"),
+
+    ("a voz dos campos entra DENTRO de `campos` (a sinopse vira link na tela)",
+     VOZ,
+     '            roteiro["audiosDosCampos"] = vozes',
+     '            roteiro["campos"] = vozes'),
+
+    ("a lista de vozes perde os vazios e desalinha dos itens",
+     VOZ,
+     "                vozes[nome] = [_assinar_texto(item, assinar) for item in valor]",
+     "                vozes[nome] = [u for u in (_assinar_texto(i, assinar) for i in valor) if u]"),
+
+    ("fixos e campos voltam a ser pedidos duas vezes quando repetem",
+     VOZ,
+     "        if texto not in vistos:\n            vistos.add(texto)\n            fora.append(texto)",
+     "        fora.append(texto)"),
+
+    ("a tela volta a filtrar texto e voz separados",
+     FRONT,
+     "  return rListaComVoz(r, name).map((p) => p.texto);",
+     '  const v = r?.campos?.[name];\n'
+     '  return Array.isArray(v) ? v.map((x) => String(x || "").trim()).filter(Boolean) : [];'),
+
+    ("revelar um card passa a repetir a etapa inteira em voz alta",
+     FRONT,
+     "      setFilaDaVoz(cards.slice(antes.ate, shownCount).filter(Boolean));",
+     "      setFilaDaVoz(cards.slice(0, shownCount).filter(Boolean));"),
 
     ("o SDK deixa de declarar a voz de cada paragrafo",
      SDK,

@@ -1002,20 +1002,19 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
   // ── Conteúdo do encontro, lido do roteiro do episódio ──
   // Memoizado: `rLista` devolve um array novo a cada chamada e estas listas entram em
   // dependências de efeito (o heartbeat das questões reiniciaria a cada render).
-  const roteiroQuestions = useMemo(() => rLista(roteiro, "questoesPlenaria"), [roteiro]);
-  const roteiroSinopse = useMemo(
-    () => [rTexto(roteiro, "sinopseParte1"), rTexto(roteiro, "sinopseParte2")].filter(Boolean),
+  // Texto E voz andam juntos desde a origem: `rListaComVoz` filtra os vazios uma
+  // vez, com o par inteiro. Filtrar nos dois lugares deslocaria um do outro e a
+  // sala leria o card errado.
+  const paresQuestions = useMemo(() => rListaComVoz(roteiro, "questoesPlenaria"), [roteiro]);
+  const roteiroQuestions = useMemo(() => paresQuestions.map((p) => p.texto), [paresQuestions]);
+  const paresSinopse = useMemo(
+    () => [rTextoComVoz(roteiro, "sinopseParte1"), rTextoComVoz(roteiro, "sinopseParte2")]
+      .filter((p) => p.texto),
     [roteiro],
   );
-  const roteiroOrientadoras = useMemo(() => rLista(roteiro, "questoesOrientadoras"), [roteiro]);
-
-  // ── A VOZ da etapa ──
-  // Memoizado pelo mesmo motivo das listas acima: `audiosDaEtapa` devolve array
-  // novo a cada chamada, e ele é a dependência que decide quando a sala fala.
-  const vozDaEtapa = useMemo(() => audiosDaEtapa(roteiro, pblStage), [roteiro, pblStage]);
-  // A aba espelho do grupo é a MESMA pessoa entrando duas vezes: se ela falasse,
-  // o aluno ouviria a instrução em dobro, defasada.
-  const voz = useVozDaEtapa(vozDaEtapa, pblActive && !isBroadcast(identity || ""));
+  const roteiroSinopse = useMemo(() => paresSinopse.map((p) => p.texto), [paresSinopse]);
+  const paresOrientadoras = useMemo(() => rListaComVoz(roteiro, "questoesOrientadoras"), [roteiro]);
+  const roteiroOrientadoras = useMemo(() => paresOrientadoras.map((p) => p.texto), [paresOrientadoras]);
   // Riscos a avaliar na Análise situacional. Vêm do roteiro; salas antigas (sem roteiro)
   // ainda caem nas dimensões do conjunto escolhido na criação.
   // Banner de fundo da apresentacao (roteiro do episodio). Chega ja como URL assinada:
@@ -1025,10 +1024,13 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
     ? { "data-banner": "1", style: { ["--vr-banner" as any]: `url("${bannerFundo}")` } as React.CSSProperties }
     : {};
 
-  const situationalItems = useMemo(() => {
-    const riscos = rLista(roteiro, "riscos");
-    return riscos.length ? riscos : roomDimensions;
+  const paresSituacional = useMemo(() => {
+    const riscos = rListaComVoz(roteiro, "riscos");
+    // As dimensões da sala são o fallback de salas antigas, sem roteiro: elas
+    // não passam pelo roteiro, logo não têm voz sintetizada.
+    return riscos.length ? riscos : roomDimensions.map((d) => ({ texto: d, voz: "" }));
   }, [roteiro, roomDimensions]);
+  const situationalItems = useMemo(() => paresSituacional.map((p) => p.texto), [paresSituacional]);
 
   // ---- Class code (ao lado da etapa atual) + popup grande transmitido p/ a sala ----
   // Facilitador vê sempre; o aluno só enquanto o registro está aberto (e não oculto).
@@ -1129,12 +1131,17 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
   // vale só para salas sem roteiro).
   const plenaryTotal = roteiroQuestions.length || PLENARY_QUESTIONS;
 
-  // Cards da etapa atual que aparecem um a um.
-  const revealItems = pblStage === "synopsis" ? roteiroSinopse
-    : pblStage === "groups" ? roteiroOrientadoras
-      : pblStage === "question" ? roteiroQuestions
-        : pblStage === "situational" ? situationalItems
-          : [];
+  // Cards da etapa atual que aparecem um a um — com a voz de cada um junto, para
+  // a sala LER o card no momento em que ele aparece.
+  const revealPares = useMemo(
+    () => (pblStage === "synopsis" ? paresSinopse
+      : pblStage === "groups" ? paresOrientadoras
+        : pblStage === "question" ? paresQuestions
+          : pblStage === "situational" ? paresSituacional
+            : []),
+    [pblStage, paresSinopse, paresOrientadoras, paresQuestions, paresSituacional],
+  );
+  const revealItems = useMemo(() => revealPares.map((p) => p.texto), [revealPares]);
   // Quem conduz usa o próprio contador; os demais seguem o que ele transmite.
   const shownCount = amController
     ? reveal + 1
@@ -1143,6 +1150,40 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
     // então essa condição garante que ele veja o material completo da discussão.
     : (pblStage === "groups" && breakoutOpen) ? revealItems.length
       : (remoteReveal?.stage === pblStage ? remoteReveal.count : 1);
+
+  // ── A VOZ do encontro ──
+  //
+  // Duas fontes: o texto FIXO da etapa (igual em todo episódio) e os cards que
+  // VARIAM por episódio, revelados um a um. A fila guarda o que falta falar
+  // AGORA — e isso é o ponto: ao revelar o card 2, a sala fala só o card 2. Uma
+  // fila com tudo faria a etapa inteira recomeçar do primeiro parágrafo a cada
+  // clique do facilitador.
+  //
+  // As chaves são strings porque arrays novos a cada render reiniciariam a fala
+  // sem parar — numa sala de vídeo são muitos renders por segundo.
+  const vozFixaDaEtapa = useMemo(() => audiosDaEtapa(roteiro, pblStage), [roteiro, pblStage]);
+  const chaveDosFixos = vozFixaDaEtapa.join("\n");
+  const chaveDosCards = revealPares.map((p) => p.voz).join("\n");
+  const [filaDaVoz, setFilaDaVoz] = useState<string[]>([]);
+  const jaFalado = useRef<{ stage: string; ate: number }>({ stage: "", ate: 0 });
+  useEffect(() => {
+    const antes = jaFalado.current;
+    const cards = chaveDosCards ? chaveDosCards.split("\n") : [];
+    if (antes.stage !== pblStage) {
+      // Etapa nova: fala as instruções fixas e o que já estiver revelado.
+      jaFalado.current = { stage: pblStage, ate: shownCount };
+      setFilaDaVoz([...(chaveDosFixos ? chaveDosFixos.split("\n") : []),
+                    ...cards.slice(0, shownCount)].filter(Boolean));
+    } else if (shownCount > antes.ate) {
+      // Mesma etapa, card novo: fala SÓ o que entrou.
+      jaFalado.current = { stage: pblStage, ate: shownCount };
+      setFilaDaVoz(cards.slice(antes.ate, shownCount).filter(Boolean));
+    }
+  }, [pblStage, shownCount, chaveDosFixos, chaveDosCards]);
+  // A aba espelho do grupo é a MESMA pessoa entrando duas vezes: se ela falasse,
+  // o aluno ouviria a instrução em dobro, defasada.
+  const voz = useVozDaEtapa(filaDaVoz, pblActive && !isBroadcast(identity || ""));
+  const temVozNaEtapa = filaDaVoz.length > 0 || !!chaveDosFixos;
 
   // Rótulo do botão sequencial (▶): SEMPRE o que o próximo clique vai fazer.
   //
@@ -1499,7 +1540,7 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
         {/* O CONTROLE DA VOZ, só para quem dirige: a sala fala sozinha, e quem
             dirige precisa poder calar ou repetir. Some nas etapas sem texto
             fixo (a vinheta de abertura) e em sala sem áudio sintetizado. */}
-        {pblActive && amStaff && vozDaEtapa.length > 0 && (
+        {pblActive && amStaff && temVozNaEtapa && (
           <ControleDaVoz
             falando={voz.falando}
             silenciado={voz.silenciado}
@@ -1862,10 +1903,34 @@ function rTexto(r: RoteiroSnapshot | null, name: string): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
+/** Um texto do roteiro com a voz dele. A voz vem de `audiosDosCampos`, um mapa
+ *  IRMÃO de `campos` com a mesma forma: texto vira texto, lista vira lista do
+ *  mesmo tamanho. Sem voz sintetizada ainda, `voz` é vazio e a sala só mostra. */
+interface ComVoz { texto: string; voz: string }
+
+function rTextoComVoz(r: RoteiroSnapshot | null, name: string): ComVoz {
+  const v = r?.audiosDosCampos?.[name];
+  return { texto: rTexto(r, name), voz: typeof v === "string" ? v : "" };
+}
+
+/** Campo de lista do roteiro com a voz de cada item, já sem os itens em branco.
+ *
+ *  O filtro dos vazios acontece AQUI, uma vez, com o par inteiro: filtrar texto
+ *  e voz em dois lugares deslocaria um em relação ao outro, e a sala leria o
+ *  item errado — sem erro nenhum na tela. */
+function rListaComVoz(r: RoteiroSnapshot | null, name: string): ComVoz[] {
+  const v = r?.campos?.[name];
+  const vozes = r?.audiosDosCampos?.[name];
+  const dasVozes = Array.isArray(vozes) ? vozes : [];
+  if (!Array.isArray(v)) return [];
+  return v
+    .map((x, i) => ({ texto: String(x || "").trim(), voz: String(dasVozes[i] || "") }))
+    .filter((p) => p.texto);
+}
+
 /** Campo de lista do roteiro, já sem os itens em branco que o formulário permite. */
 function rLista(r: RoteiroSnapshot | null, name: string): string[] {
-  const v = r?.campos?.[name];
-  return Array.isArray(v) ? v.map((x) => String(x || "").trim()).filter(Boolean) : [];
+  return rListaComVoz(r, name).map((p) => p.texto);
 }
 
 /** Textos fixos de uma seção do roteiro (iguais em todo episódio). */
@@ -1886,7 +1951,12 @@ function rTitulo(r: RoteiroSnapshot | null, key: string): string {
 function secaoDaEtapa(stage: OpenPblStage): string | null {
   if (stage === "session_start") return null;   // vinheta da série, não é instrução
   if (stage === "release_feedback" || stage === "done") return "feedback";
-  return stage === "registration_open" || stage === "registration_close" ? "abertura"
+  // `amplify_code` entra com as de registro: é a mesma seção do roteiro
+  // ("Abertura e registro"), e o `head` dela em STEPS é o mesmo. Sem esta
+  // linha ela cairia no `else` final e a tela mostraria a seção de FEEDBACK
+  // no meio do registro de presença.
+  return stage === "registration_open" || stage === "registration_close"
+    || stage === "amplify_code" ? "abertura"
     : stage === "synopsis" ? "revisitando"
       : stage === "groups" ? "aquecimento"
         : stage === "plenary" ? "plenaria"
@@ -2107,6 +2177,12 @@ interface StepDef { id: OpenPblStage; action: string; head: string; }
 const STEPS: StepDef[] = [
   { id: "session_start",      action: "Iniciar a sessão",                     head: "Abertura" },
   { id: "registration_open",  action: "Iniciar o registro",                   head: "Registro de Presença" },
+  // `amplify_code` FALTAVA aqui, e o backend sempre a conheceu (`ORDEM` em
+  // `cadencia.py`, `_STAGES` no router). No modo automático a sala entrava nela,
+  // a tela não a reconhecia, caía para `session_start` e mostrava "Abertura" com
+  // o aviso de etapa desconhecida — enquanto o encontro já tinha passado do
+  // registro. `prova_cadencia.py` agora compara AS TRÊS listas.
+  { id: "amplify_code",       action: "Ampliar o código da sessão",           head: "Registro de Presença" },
   { id: "registration_close", action: "Encerrar o registro",                  head: "Registro de Presença" },
   { id: "synopsis",           action: "Revisitar a situação-problema",        head: "Situação-problema" },
   { id: "groups",             action: "Divisão em grupos",                    head: "Aquecimento" },
