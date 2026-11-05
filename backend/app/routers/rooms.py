@@ -1,4 +1,6 @@
+import asyncio
 import json as _json
+import logging
 import secrets
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -10,7 +12,10 @@ from ..realtime.hub import hub
 from ..room_roles import roles_public as _roles_public, is_host_or_mod as _is_host_or_mod, update_roles as _update_roles
 from ..services.recording_service import presigned_url
 from ..services.livekit_service import set_participant_sources, remove_participant, list_participant_identities
+from ..services import voz as _voz, voz_porta as _voz_porta
 from ..tenancy import resolve_tenant_id, get_effective_limits, normalize_branding
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/rooms", tags=["rooms"])
 
@@ -53,6 +58,50 @@ def _roteiro_com_banner(roteiro):
         except Exception:
             campos["bannerFundo"] = ""    # banner indisponível não pode quebrar a sala
     return roteiro
+
+
+def _roteiro_com_voz(roteiro):
+    """Acrescenta a URL do áudio de cada parágrafo fixo, para a sala FALAR.
+
+    Separado de `_roteiro_com_banner` porque o banner é um campo do episódio,
+    gravado no snapshot, e a voz não é gravada em lugar nenhum: a chave do mp3 é
+    o hash do próprio texto (`services/voz.py`), recalculada a cada carga. Texto
+    editado no roteiro muda a chave e perde a voz velha — em vez de a sala dizer
+    uma coisa enquanto a tela mostra outra.
+
+    Objeto que ainda não existe devolve URL que responde 404, e o `<audio>`
+    desiste em silêncio: a sala mostra o texto, como antes.
+    """
+    try:
+        return _voz.com_audios(roteiro, _voz_porta.assinar)
+    except Exception:   # noqa: BLE001
+        return roteiro
+
+
+#: Tarefas de aquecimento em curso.
+#:
+#: `asyncio.create_task` só guarda uma referência FRACA: sem este conjunto, uma
+#: coleta de lixo no meio do caminho mataria a síntese pela metade, e o sintoma
+#: seria uma sala com voz em alguns parágrafos e não em outros.
+_aquecimentos: set = set()
+
+
+def _aquecer_voz(roteiro) -> None:
+    """Dispara a síntese do que falta, SEM a criação da sala esperar por ela.
+
+    São ~20 parágrafos na primeira sala da vida (~20 segundos de Polly) e zero
+    chamadas em todas as seguintes, porque o texto fixo não muda. Fazer isso
+    dentro da requisição faria o modal de criar sala rodar o relógio na cara de
+    quem clicou, uma única vez, por um áudio que só será ouvido dias depois.
+    """
+    if not _voz_porta.configurado():
+        return
+    try:
+        tarefa = asyncio.create_task(_voz_porta.preparar(roteiro))
+    except RuntimeError:
+        return      # sem loop (teste, script): a sala é criada sem voz
+    _aquecimentos.add(tarefa)
+    tarefa.add_done_callback(_aquecimentos.discard)
 
 
 def _is_scorm(slug: str | None) -> bool:
@@ -136,6 +185,8 @@ async def create_room(
         (body.episode_id or None),
         (_json.dumps(body.roteiro) if body.roteiro else None),
     )
+    if body.roteiro:
+        _aquecer_voz(body.roteiro)
     return _row_to_room(row)
 
 
@@ -232,9 +283,9 @@ async def room_public(room_id: str):
             "risk_dimensions": (_json.loads(r["risk_dimensions"]) if isinstance(r["risk_dimensions"], str) else r["risk_dimensions"]),
             # Roteiro do episódio: é o conteúdo do encontro (sinopse, questões, riscos),
             # renderizado nativamente pela sala. Vale para o aluno também.
-            "roteiro": _roteiro_com_banner(
+            "roteiro": _roteiro_com_voz(_roteiro_com_banner(
                 _json.loads(r["roteiro"]) if isinstance(r["roteiro"], str) else r["roteiro"]
-            ),
+            )),
             "created_at": r["created_at"],   # âncora do countdown do saguão (compartilhado)
             "scorm": _is_scorm(r["tenant_slug"])}
 

@@ -1,0 +1,103 @@
+"""As portas do mundo real da voz do encontro: o bucket desta aplicação e o
+CoreService que sintetiza.
+
+Separado de `services/voz.py` de propósito: lá vive a decisão (qual é a chave de
+um texto, o que pedir, como alinhar o áudio com o parágrafo), e a decisão tem de
+ser exercitável sem AWS, sem rede e sem Polly. Aqui vive o que só funciona em
+produção, e por isso aqui não se decide nada.
+"""
+from __future__ import annotations
+
+import logging
+
+import httpx
+from botocore.exceptions import ClientError
+
+from ..config import settings
+from . import voz
+from .recording_service import presigned_url, s3_client
+
+logger = logging.getLogger(__name__)
+
+#: Teto da espera pelo CoreService. O Polly generativo leva ~1 a 3 segundos num
+#: parágrafo de instrução, e a borda do Amplify corta em 28 — esperar mais que
+#: isso é esperar por uma resposta que não vem mais.
+TIMEOUT_S = 30.0
+
+#: Quanto dura a URL que a sala recebe. Seis horas, como o banner de fundo e o
+#: vídeo do saguão: é o que cobre um encontro com folga sem virar link
+#: permanente. Uma aba aberta além disso recarrega a sala.
+VALIDADE_S = 6 * 3600
+
+
+def configurado() -> bool:
+    """Há como pedir voz? Sem isto a sala mostra o texto e segue."""
+    return bool((settings.voz_core_url or "").strip() and (settings.voz_core_token or "").strip())
+
+
+def assinar(chave: str) -> str:
+    """URL assinada de um objeto de voz, para o `<audio>` tocar."""
+    return presigned_url(chave, expires=VALIDADE_S)
+
+
+def tem(chave: str) -> bool:
+    """O áudio deste texto já está no bucket?
+
+    Ausente devolve False; QUALQUER outro erro sobe. Tratar "credencial sem
+    permissão" como ausência faria a sala pedir e pagar a mesma síntese em toda
+    criação de sala, para sempre, sem nada no log dizendo por quê.
+    """
+    try:
+        s3_client().head_object(Bucket=settings.s3_bucket, Key=chave)
+        return True
+    except ClientError as exc:
+        codigo = str(exc.response.get("Error", {}).get("Code", ""))
+        if codigo in ("404", "NoSuchKey", "NotFound"):
+            return False
+        raise
+
+
+def guardar(chave: str, mp3: bytes) -> None:
+    s3_client().put_object(
+        Bucket=settings.s3_bucket, Key=chave, Body=mp3, ContentType="audio/mpeg"
+    )
+
+
+async def sintetizar(texto: str) -> bytes:
+    """Pede ao CoreService o mp3 de um parágrafo.
+
+    O corpo da resposta É o áudio. O erro traz o código HTTP e um trecho do
+    corpo porque os dois modos de falha interessantes são indistinguíveis sem
+    eles: 401 é segredo divergente, 503 é Polly sem permissão do lado de lá.
+    """
+    base = (settings.voz_core_url or "").strip().rstrip("/")
+    async with httpx.AsyncClient(timeout=TIMEOUT_S) as cliente:
+        r = await cliente.post(
+            f"{base}/api/voz/sintetizar",
+            json={"texto": texto},
+            headers={"X-Voz-Token": (settings.voz_core_token or "").strip()},
+        )
+    if r.status_code != 200:
+        raise RuntimeError(f"CoreService respondeu {r.status_code}: {r.text[:200]}")
+    logger.info("[voz] sintetizada pelo core (cache=%s)", r.headers.get("X-Voz-Cache", "?"))
+    return r.content
+
+
+async def preparar(roteiro) -> dict[str, int]:
+    """Garante a voz de todos os blocos fixos de um roteiro.
+
+    Chamada quando a sala é CRIADA, e não quando ela é aberta: a criação
+    acontece dias antes da aula, e a abertura acontece com os alunos esperando.
+    Idempotente — depois da primeira sala, só confere que já existe.
+    """
+    if not configurado():
+        logger.info("[voz] VOZ_CORE_URL/VOZ_CORE_TOKEN ausentes: encontro sem audio")
+        return {"desligado": 1}
+    paragrafos = voz.paragrafos_do_roteiro(roteiro)
+    if not paragrafos:
+        return {"pedidos": 0, "prontos": 0, "falhas": 0, "ja_tinha": 0}
+    contas = await voz.garantir(
+        paragrafos, tem=tem, sintetizar=sintetizar, guardar=guardar
+    )
+    logger.info("[voz] %s paragrafos: %s", len(paragrafos), contas)
+    return contas

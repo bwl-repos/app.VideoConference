@@ -26,7 +26,7 @@ from ..auth import get_current_user, optional_user, CurrentUser
 from ..config import settings
 from ..db import pool, tem_coluna, tem_tabela
 from ..realtime.hub import hub
-from ..services import cadencia, comunicacoes, presenca, sorteio
+from ..services import cadencia, comunicacoes, presenca, sorteio, voz_porta
 from ..services.livekit_service import list_participant_identities
 from ..services.progresso import (
     e_avaliacao_de_pares,
@@ -1317,6 +1317,36 @@ async def listar_transcricao(room_id: str, user: CurrentUser = Depends(get_curre
         }
         for l in linhas
     ]}
+
+
+@router.post("/{room_id}/openpbl/voz")
+async def preparar_voz(room_id: str, user: CurrentUser = Depends(get_current_user)):
+    """Sintetiza a voz dos textos fixos desta sala, e diz o que fez.
+
+    A síntese normalmente acontece sozinha quando a SALA É CRIADA, em segundo
+    plano. Esta rota existe por dois motivos que o aquecimento automático não
+    cobre:
+
+    · **conferir**: é a única forma de saber se o segredo e o CoreService estão
+      certos sem criar uma sala e esperar o log — `{"pedidos": 0, "ja_tinha":
+      20}` prova a ponta a ponta que a voz existe;
+    · **consertar**: salas criadas ANTES desta versão, ou criadas enquanto o
+      CoreService estava fora, não têm áudio nenhum e não seriam aquecidas por
+      nada.
+
+    Síncrona, ao contrário do aquecimento: quem chamou está esperando o número.
+    Idempotente — o que já existe não é pedido de novo.
+    """
+    await _require_host(user)
+    linha = await pool().fetchrow("SELECT roteiro FROM video_rooms WHERE id=$1", room_id)
+    if not linha:
+        raise HTTPException(404, "sala não encontrada")
+    bruto = linha["roteiro"]
+    roteiro = json.loads(bruto) if isinstance(bruto, str) else bruto
+    if not roteiro:
+        return {"desligado": 0, "pedidos": 0, "prontos": 0, "falhas": 0, "ja_tinha": 0,
+                "detalhe": "sala sem roteiro: não há texto fixo para falar"}
+    return await voz_porta.preparar(roteiro)
 
 
 # ── roster: status dos alunos p/ as bordas dos tiles ──────────────────────

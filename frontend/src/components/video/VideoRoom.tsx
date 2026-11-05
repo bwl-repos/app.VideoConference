@@ -1008,6 +1008,14 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
     [roteiro],
   );
   const roteiroOrientadoras = useMemo(() => rLista(roteiro, "questoesOrientadoras"), [roteiro]);
+
+  // ── A VOZ da etapa ──
+  // Memoizado pelo mesmo motivo das listas acima: `audiosDaEtapa` devolve array
+  // novo a cada chamada, e ele é a dependência que decide quando a sala fala.
+  const vozDaEtapa = useMemo(() => audiosDaEtapa(roteiro, pblStage), [roteiro, pblStage]);
+  // A aba espelho do grupo é a MESMA pessoa entrando duas vezes: se ela falasse,
+  // o aluno ouviria a instrução em dobro, defasada.
+  const voz = useVozDaEtapa(vozDaEtapa, pblActive && !isBroadcast(identity || ""));
   // Riscos a avaliar na Análise situacional. Vêm do roteiro; salas antigas (sem roteiro)
   // ainda caem nas dimensões do conjunto escolhido na criação.
   // Banner de fundo da apresentacao (roteiro do episodio). Chega ja como URL assinada:
@@ -1488,6 +1496,18 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
           />
         )}
 
+        {/* O CONTROLE DA VOZ, só para quem dirige: a sala fala sozinha, e quem
+            dirige precisa poder calar ou repetir. Some nas etapas sem texto
+            fixo (a vinheta de abertura) e em sala sem áudio sintetizado. */}
+        {pblActive && amStaff && vozDaEtapa.length > 0 && (
+          <ControleDaVoz
+            falando={voz.falando}
+            silenciado={voz.silenciado}
+            onAlternar={voz.alternarSilencio}
+            onRepetir={voz.repetir}
+          />
+        )}
+
         {/* A TRANSCRIÇÃO, só para quem dirige. Ver `PainelDaTranscricao`. */}
         {pblActive && amStaff && (
           <PainelDaTranscricao
@@ -1858,6 +1878,107 @@ function rTitulo(r: RoteiroSnapshot | null, key: string): string {
   return r?.secoes?.find((s) => s.key === key)?.titulo ?? "";
 }
 
+/** Qual seção do roteiro pertence a cada etapa do encontro.
+ *
+ *  Uma cópia só, de propósito: a tela da etapa e a VOZ da etapa leem daqui. Com
+ *  duas cópias, divergir faria a sala falar o texto de uma seção enquanto mostra
+ *  outra — e nada na tela acusaria o erro. `null` = etapa sem texto fixo. */
+function secaoDaEtapa(stage: OpenPblStage): string | null {
+  if (stage === "session_start") return null;   // vinheta da série, não é instrução
+  if (stage === "release_feedback" || stage === "done") return "feedback";
+  return stage === "registration_open" || stage === "registration_close" ? "abertura"
+    : stage === "synopsis" ? "revisitando"
+      : stage === "groups" ? "aquecimento"
+        : stage === "plenary" ? "plenaria"
+          : stage === "release_risks" ? "analise"
+            : "feedback";
+}
+
+/** As vozes dos textos fixos desta etapa, na ordem de leitura.
+ *
+ *  Sai da SEÇÃO, e não do que está na tela: o painel visível muda com o papel
+ *  (na plenária o aluno vê a cascata de questões e o facilitador vê o objetivo),
+ *  e a fala do facilitador era a mesma para os dois. Amarrar a voz ao painel
+ *  faria o aluno ouvir uma coisa e o host outra. */
+function audiosDaEtapa(r: RoteiroSnapshot | null, stage: OpenPblStage): string[] {
+  const secao = secaoDaEtapa(stage);
+  if (!secao) return [];
+  return rBlocos(r, secao).flatMap((b) => b.audios ?? []).filter(Boolean);
+}
+
+/** A sala FALA as instruções da etapa, uma após a outra, quando a etapa abre.
+ *
+ *  É o item "texto + áudio" da facilitação autônoma: sem facilitador humano, não
+ *  há quem leia em voz alta o que está na tela.
+ *
+ *  Toca no cliente, e não como faixa publicada no LiveKit: os participantes
+ *  estão cada um no seu dispositivo, então cada um ouve pelo próprio fone, e o
+ *  encontro não depende de haver um agente de voz de pé. A aba ESPELHO do grupo
+ *  (`__bc`) fica muda — é a mesma pessoa duas vezes, e falaria em dobro. */
+function useVozDaEtapa(urls: string[], ativo: boolean) {
+  const [silenciado, setSilenciado] = useState(false);
+  const [falando, setFalando] = useState(false);
+  const [repeticao, setRepeticao] = useState(0);
+  // A lista entra no efeito como TEXTO: um array novo a cada render reiniciaria a
+  // fala do começo em toda re-renderização da sala — e numa sala de vídeo são
+  // muitas por segundo.
+  const chave = urls.join("\n");
+  useEffect(() => {
+    if (!ativo || silenciado || !chave) { setFalando(false); return; }
+    const lista = chave.split("\n");
+    const audio = new Audio();
+    let atual = -1;
+    let morto = false;
+    const toca = (i: number) => {
+      if (morto) return;
+      if (i >= lista.length) { setFalando(false); return; }
+      atual = i;
+      audio.src = lista[i];
+      // `play()` REJEITA em dois casos normais: o navegador não viu gesto do
+      // usuário (a aba do gravador) e a URL responde 404 (texto fixo que ainda
+      // não tem voz sintetizada). Os dois querem dizer "siga sem áudio".
+      audio.play().catch(() => pula(i));
+    };
+    // Por índice: `ended` e a recusa do `play()` podem chegar os dois para a
+    // mesma fala, e sem isto a segunda pularia uma instrução.
+    const pula = (i: number) => { if (!morto && i === atual) toca(i + 1); };
+    const aoTerminar = () => pula(atual);
+    audio.addEventListener("ended", aoTerminar);
+    audio.addEventListener("error", aoTerminar);
+    setFalando(true);
+    toca(0);
+    return () => { morto = true; audio.pause(); audio.src = ""; };
+  }, [chave, ativo, silenciado, repeticao]);
+  return {
+    silenciado,
+    falando,
+    alternarSilencio: () => setSilenciado((v) => !v),
+    repetir: () => setRepeticao((n) => n + 1),
+  };
+}
+
+/** Controle da voz, só para quem dirige: silenciar e repetir.
+ *
+ *  Existe porque o áudio automático pode começar em cima de alguém que já estava
+ *  falando — e porque "não ouvi, repete" é o pedido mais previsível de uma sala
+ *  que fala sozinha. Nada aparece nas etapas sem texto fixo. */
+function ControleDaVoz({ falando, silenciado, onAlternar, onRepetir }: {
+  falando: boolean; silenciado: boolean; onAlternar: () => void; onRepetir: () => void;
+}) {
+  return (
+    <div className="vr-voz">
+      <button className="vr-voz__btn" onClick={onAlternar}
+        title={silenciado ? "A sala não está falando as instruções" : "A sala fala as instruções ao abrir a etapa"}>
+        {silenciado ? "🔇 Voz desligada" : falando ? "🔊 Falando…" : "🔊 Voz ligada"}
+      </button>
+      <button className="vr-voz__btn" onClick={onRepetir} disabled={silenciado}
+        title="Toca as instruções desta etapa de novo, do começo">
+        ↻ Repetir
+      </button>
+    </div>
+  );
+}
+
 /** Dos blocos fixos da plenária, o 1º ("o objetivo da discussão") abre a etapa da
  *  plenária e os seguintes explicam a DINÂMICA das questões — estes pertencem à tela
  *  "Questões para reflexão". Salas sem roteiro (ou com um bloco só) não têm intro. */
@@ -1934,13 +2055,9 @@ function RoteiroStage({ stage, roteiro, shown = 1 }: {
     );
   }
 
-  // Demais etapas: seção do roteiro correspondente.
-  const secao = stage === "registration_open" || stage === "registration_close" ? "abertura"
-    : stage === "synopsis" ? "revisitando"
-      : stage === "groups" ? "aquecimento"
-        : stage === "plenary" ? "plenaria"
-          : stage === "release_risks" ? "analise"
-            : "feedback";   // closing (o gráfico costuma cobrir esta etapa)
+  // Demais etapas: seção do roteiro correspondente (mapa único, ver `secaoDaEtapa`;
+  // `closing` cai em "feedback", etapa que o gráfico costuma cobrir).
+  const secao = secaoDaEtapa(stage) ?? "feedback";
   // Na plenária só entra o 1º bloco (o objetivo). Os seguintes descrevem a dinâmica
   // das questões e abrem a etapa "Questões para reflexão" (ver `rIntroQuestoes`).
   const blocos = stage === "plenary" ? rBlocos(roteiro, secao).slice(0, 1) : rBlocos(roteiro, secao);

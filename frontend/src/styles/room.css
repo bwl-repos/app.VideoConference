@@ -1569,3 +1569,21 @@ button.vr-seq-label:disabled { opacity: .6; cursor: default; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Controle da VOZ da etapa (facilitacao autonoma). Mesma pilula dos outros
+   controles da faixa do host: a sala falar sozinha e' o padrao, e isto e' so o
+   freio -- nao deve competir com o relogio nem com o historico. */
+.vr-voz { display: flex; gap: 6px; align-items: center; }
+
+.vr-voz__btn {
+  border: 1px solid rgba(255,255,255,.18);
+  background: rgba(255,255,255,.06);
+  color: #e8eef6;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.vr-voz__btn:hover { background: rgba(255,255,255,.12); }
+.vr-voz__btn:disabled { opacity: .45; cursor: default; }

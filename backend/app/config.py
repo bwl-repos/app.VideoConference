@@ -27,6 +27,18 @@ class Settings(BaseSettings):
     admin_jwt_secret: str = "change-me-admin-secret"   # signs admin panel sessions
     node_secret: str = ""                  # shared secret for node agents → /api/internal/nodes
 
+    # Voz das instruções fixas do encontro (facilitação autônoma).
+    #
+    # O Polly vive no CoreService, que produz o audiodrama: a credencial de AWS
+    # desta aplicação é estritamente S3 num bucket só. Aqui se PEDE o mp3 e se
+    # guarda no bucket de gravações, sob o prefixo `voz/`.
+    #
+    # Vazios DESLIGAM o áudio: a sala mostra o texto fixo e segue, sem erro. O
+    # segredo é o `VOZ_TOKEN` do CoreService — próprio, e não o token interno
+    # dele, que abre as rotas que criam e alteram atividades.
+    voz_core_url: str = ""                 # ex.: https://core.openpbl.ai
+    voz_core_token: str = ""
+
     # Finance / modelo de custo (Lightsail fixo sa-east-1 + S3 variável).
     # Ajuste se redimensionar instâncias ou mudar de região/preço.
     cost_app_usd: float = 24.0             # bwl-app (medium_3_1: 2 vCPU / 4 GB)

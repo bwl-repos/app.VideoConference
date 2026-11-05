@@ -128,7 +128,20 @@ export interface OpenPblClass {
  * CustomerApp a partir de `roteiro/schema.ts` + do que foi preenchido no modal de
  * gerenciar produção; aqui só é lido.
  */
-export interface RoteiroBlocoFixo { titulo?: string; paragrafos: string[]; lista?: boolean }
+export interface RoteiroBlocoFixo {
+  titulo?: string;
+  paragrafos: string[];
+  lista?: boolean;
+  /**
+   * A voz de cada parágrafo, ALINHADA com `paragrafos` (`audios[i]` fala
+   * `paragrafos[i]`), em URLs assinadas que o backend refaz a cada carga.
+   *
+   * Parágrafo sem voz entra como string vazia em vez de ser omitido — é o que
+   * mantém os índices casados. Lista ausente = sala sem áudio configurado, e a
+   * tela segue igual ao que sempre foi.
+   */
+  audios?: string[];
+}
 export interface RoteiroSnapshot {
   episodio?: { id?: string; titulo?: string };
   /** Campos variáveis por nome (ver schema.ts): texto ou lista de textos. */
