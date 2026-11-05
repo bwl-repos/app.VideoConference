@@ -58,3 +58,6 @@ playwright-report/
 # distraido o commitaria.
 *.bak-*
 *.env.bak
+
+# ids de quadro do Miro por maquina (docs/miro_fluxograma.py)
+docs/.miro_manifesto.json
