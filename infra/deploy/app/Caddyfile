@@ -1,10 +1,39 @@
 video.pbltools.io {
+	root * /srv
+
 	@backend path /api/* /ws/* /health /health/*
 	handle @backend {
 		reverse_proxy backend:8000
 	}
+
+	# OS ARQUIVOS COM HASH NO NOME NÃO CAEM NO FALLBACK DE SPA.
+	#
+	# `try_files {path} /index.html` cobria tudo, inclusive `/assets/*`. Um
+	# chunk antigo — o que o navegador pede quando guardou o `index.html` de
+	# antes do deploy — respondia **200 com HTML**, e o `import()` do navegador
+	# recebia uma página onde esperava um módulo. O React não desenhava nada e,
+	# com o `body` escuro, a tela ficava PRETA. Sem erro na tela e sem nada no
+	# log: do lado do servidor, 200.
+	#
+	# Aqui o arquivo ausente vira 404, que é a verdade — e é o que faz o
+	# `vite:preloadError` disparar no cliente (ver `frontend/src/main.tsx`).
+	#
+	# `immutable`: o nome carrega o hash do conteúdo, então o arquivo nunca
+	# muda. Quem já baixou não pergunta de novo.
+	handle /assets/* {
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	# O HTML (e o resto do estático sem hash) SEMPRE REVALIDA.
+	#
+	# `no-cache` não é "não guarde": é "guarde, mas pergunte antes de usar". Com
+	# o ETag que o Caddy já manda, a pergunta custa um 304 de alguns bytes — e é
+	# o que impede o índice de ontem apontar para um chunk que não existe mais.
+	# Sem cabeçalho nenhum, o navegador inventa a validade por conta própria
+	# (heurística do Last-Modified) e pode segurar o índice velho por horas.
 	handle {
-		root * /srv
+		header Cache-Control "no-cache"
 		try_files {path} /index.html
 		file_server
 	}

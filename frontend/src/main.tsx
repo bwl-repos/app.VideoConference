@@ -345,6 +345,76 @@ function GuestPage() {
   );
 }
 
+// ── O CHUNK QUE SUMIU DEPOIS DE UM DEPLOY ───────────────────────────────────
+//
+// Todas as telas acima entram por `import()`, e o nome do arquivo carrega o hash
+// do conteúdo. Um deploy publica nomes novos e apaga os antigos — então o
+// navegador que guardou o `index.html` de ontem pede um arquivo que não existe
+// mais. O servidor responde o `index.html` no lugar (é o fallback de SPA do
+// Caddy), o `import()` recebe HTML onde esperava um módulo, e o React não
+// desenha nada. Como o `body` tem fundo escuro, o resultado é uma TELA PRETA —
+// sem erro na tela, sem nada no log do servidor, que respondeu 200.
+//
+// Aconteceu em 06/11/2026: quem abriu `/admin` com a aba de antes do deploy em
+// cache via preto, e quem recarregou via a tela de login.
+//
+// Duas defesas, e as duas são necessárias:
+//
+//   · o Caddy passou a servir `/assets/*` SEM o fallback (arquivo que não
+//     existe vira 404, e não um HTML disfarçado de módulo) e a marcar o HTML
+//     como `no-cache`, que é o que impede o índice velho de sobreviver ao
+//     deploy — ver `infra/deploy/app/Caddyfile`;
+//   · e aqui, a recarga: quem já estava com a página ABERTA durante o deploy
+//     continua com o índice velho na memória, e nenhum cabeçalho alcança isso.
+//
+// UMA recarga só. Se o módulo continuar faltando depois dela, o problema não é
+// cache, e insistir seria um laço infinito — aí a tela passa a dizer o que
+// houve, que é melhor que preto.
+const MARCA_DE_RECARGA = "chunk-recarregado";
+
+function podeRecarregar(): boolean {
+  try {
+    if (sessionStorage.getItem(MARCA_DE_RECARGA)) return false;
+    sessionStorage.setItem(MARCA_DE_RECARGA, "1");
+    return true;
+  } catch {
+    // Sem `sessionStorage` (aba anônima com armazenamento bloqueado) não há
+    // como lembrar que já tentamos, e recarregar viraria laço. Mostra o aviso.
+    return false;
+  }
+}
+
+function avisarQueFaltaRecarregar() {
+  const raiz = document.getElementById("root");
+  if (!raiz) return;
+  raiz.innerHTML = `
+    <div style="min-height:100%;display:grid;place-items:center;padding:24px;
+                font-family:Inter,system-ui,sans-serif;color:#e7e9ee;text-align:center">
+      <div style="max-width:420px;display:grid;gap:12px">
+        <div style="font-size:17px;font-weight:600">Esta página está desatualizada</div>
+        <div style="font-size:14px;line-height:1.5;color:#a8aeba">
+          O sistema foi atualizado enquanto esta aba estava aberta. Recarregue
+          segurando <strong>Ctrl</strong> (ou <strong>⌘</strong>) para buscar a versão nova.
+        </div>
+        <button id="recarregar" style="justify-self:center;background:#e11d2a;color:#fff;
+                border:none;border-radius:9px;padding:10px 18px;font-weight:600;cursor:pointer">
+          Recarregar
+        </button>
+      </div>
+    </div>`;
+  raiz.querySelector("#recarregar")?.addEventListener("click", () => {
+    try { sessionStorage.removeItem(MARCA_DE_RECARGA); } catch { /* sem storage */ }
+    window.location.reload();
+  });
+}
+
+window.addEventListener("vite:preloadError" as any, (e: Event) => {
+  // `preventDefault` impede o Vite de relançar o erro: quem trata somos nós.
+  e.preventDefault();
+  if (podeRecarregar()) window.location.reload();
+  else avisarQueFaltaRecarregar();
+});
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <SDKContext.Provider value={sdk}>
     <BrowserRouter>
