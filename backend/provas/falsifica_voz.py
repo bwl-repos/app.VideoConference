@@ -28,6 +28,9 @@ PORTA = RAIZ / "app/services/voz_porta.py"
 ROOMS = RAIZ / "app/routers/rooms.py"
 AULA = RAIZ / "app/routers/openpbl_class.py"
 FRONT = RAIZ.parent / "frontend/src/components/video/VideoRoom.tsx"
+#: A tela do roteiro saiu do VideoRoom para modulo proprio quando o painel admin
+#: passou a mostrar o preview de cada etapa com os MESMOS componentes da aula.
+ROTEIRO = RAIZ.parent / "frontend/src/components/video/RoteiroStage.tsx"
 SDK = RAIZ.parent / "frontend/src/lib/video-rooms-sdk.ts"
 
 #: (rotulo, arquivo, trecho original, trecho estragado)
@@ -149,7 +152,7 @@ ESTRAGOS = [
 
     # ── A tela ──────────────────────────────────────────────────────────────
     ("volta a existir uma SEGUNDA copia do mapa etapa->secao",
-     FRONT,
+     ROTEIRO,
      "  const blocos = blocosDaEtapa(roteiro, stage);",
      '  const secao = stage === "registration_open" || stage === "registration_close" ? "abertura"\n'
      '    : stage === "synopsis" ? "revisitando"\n'
@@ -160,17 +163,17 @@ ESTRAGOS = [
      "  const blocos = rBlocos(roteiro, secao);"),
 
     ("`amplify_code` volta a cair no default e mostra a secao de FEEDBACK",
-     FRONT,
+     ROTEIRO,
      '    case "registration_open": case "amplify_code": case "registration_close":',
      '    case "registration_open": case "registration_close":'),
 
     ("o mapa volta a ter catch-all e a voz anuncia o FEEDBACK no meio da analise",
-     FRONT,
+     ROTEIRO,
      "    default:\n      return null;\n  }\n}",
      '    default:\n      return "feedback";\n  }\n}'),
 
     ("as questoes da plenaria voltam a falar a secao inteira",
-     FRONT,
+     ROTEIRO,
      '  if (stage === "question") return rIntroQuestoes(r);\n',
      ""),
 
@@ -231,7 +234,7 @@ ESTRAGOS = [
      "        fora.append(texto)"),
 
     ("a tela volta a filtrar texto e voz separados",
-     FRONT,
+     ROTEIRO,
      "  return rListaComVoz(r, name).map((p) => p.texto);",
      '  const v = r?.campos?.[name];\n'
      '  return Array.isArray(v) ? v.map((x) => String(x || "").trim()).filter(Boolean) : [];'),

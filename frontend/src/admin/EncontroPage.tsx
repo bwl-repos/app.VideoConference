@@ -38,6 +38,9 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { adminApi, adminFetch } from "./adminApi";
+import { RoteiroStage, QuestionCascade, rIntroQuestoes } from "../components/video/RoteiroStage";
+import type { RoteiroSnapshot } from "../lib/video-rooms-sdk";
+import "../styles/room.css";
 
 interface Campo {
   name: string; label: string; tipo: string;
@@ -231,7 +234,7 @@ export default function EncontroPage() {
           {etapa && (
             <DetalheDaEtapa etapa={etapa} etapas={dados.etapas} cfg={cfg} setCfg={alterar}
               padrao={dados.base} avancaSozinha={dados.avanca_sozinha}
-              vozLigada={dados.voz_configurada} />
+              vozLigada={dados.voz_configurada} dados={dados} />
           )}
         </div>
       )}
@@ -285,9 +288,9 @@ function ListaDeEtapas({ etapas, cfg, aberta, avancaSozinha, onAbrir }: {
 
 /* ---------------- O detalhe ---------------- */
 
-function DetalheDaEtapa({ etapa, etapas, cfg, setCfg, padrao, avancaSozinha, vozLigada }: {
+function DetalheDaEtapa({ etapa, etapas, cfg, setCfg, padrao, avancaSozinha, vozLigada, dados }: {
   etapa: Etapa; etapas: Etapa[]; cfg: Config; setCfg: (f: (c: Config) => Config) => void;
-  padrao: Config; avancaSozinha: string[]; vozLigada: boolean;
+  padrao: Config; avancaSozinha: string[]; vozLigada: boolean; dados: Dados;
 }) {
   const blocos = blocosDaEtapa(cfg, etapa);
   const valor = cfg.duracoes[etapa.id];
@@ -463,9 +466,9 @@ function DetalheDaEtapa({ etapa, etapas, cfg, setCfg, padrao, avancaSozinha, voz
           )}
         </div>
 
-        <div>
-          <h4 className="enc-sub">Como entra na tela</h4>
-          <PreviewDaEtapa etapa={etapa} blocos={blocos.map((b) => b.bloco)} />
+        <div className="enc-coluna-tela">
+          <h4 className="enc-sub">A tela da sala, agora</h4>
+          <PreviewDaEtapa etapa={etapa} cfg={cfg} dados={dados} />
         </div>
       </div>
     </section>
@@ -474,41 +477,116 @@ function DetalheDaEtapa({ etapa, etapas, cfg, setCfg, padrao, avancaSozinha, voz
 
 /* ---------------- O preview ---------------- */
 
-/** O que entra na tela desta etapa, na ordem.
+/** O retrato de roteiro que o preview desenha.
  *
- *  Mesma regra de renderização da sala (`RoteiroBlocos` no VideoRoom): título em
- *  negrito, `lista` vira marcadores, parágrafos viram parágrafos. O que NÃO se
- *  copia é o layout da videoconferência — ver o cabeçalho deste arquivo. */
-function PreviewDaEtapa({ etapa, blocos }: { etapa: Etapa; blocos: Bloco[] }) {
-  const vazio = blocos.length === 0 && etapa.campos.length === 0;
+ *  Os textos FIXOS são os que estão sendo editados agora — é isso que faz o
+ *  preview acompanhar a digitação. O conteúdo do EPISÓDIO entra como marcador
+ *  («Questão 1»), porque ele muda a cada semana e é preenchido no CustomerApp:
+ *  o que esta tela precisa mostrar é o lugar dele, no tamanho e na posição em
+ *  que ele vai aparecer. */
+function retratoDoPreview(cfg: Config, dados: Dados): RoteiroSnapshot {
+  const campos: Record<string, string | string[]> = {};
+  for (const secao of dados.secoes) {
+    for (const c of secao.campos) {
+      // O banner é CHAVE de imagem, não prosa: um marcador aqui viraria uma
+      // URL inválida de fundo. Vazio = a sala desenha sem banner, que é o
+      // estado de um episódio ainda sem arte.
+      if (c.tipo === "imagem") { campos[c.name] = ""; continue; }
+      campos[c.name] = c.tipo === "lista"
+        ? Array.from({ length: c.itensPrevistos || 1 },
+                     (_, i) => `«${c.rotuloItem || c.label} ${i + 1}»`)
+        : `«${c.label}»`;
+    }
+  }
+  return {
+    episodio: { titulo: "«Título do episódio»" },
+    campos,
+    secoes: cfg.secoes.map((s) => ({
+      key: s.key,
+      titulo: dados.secoes.find((d) => d.key === s.key)?.titulo || "",
+      blocosFixos: s.blocos.map((b) => ({
+        titulo: b.titulo, lista: b.lista, paragrafos: b.paragrafos,
+      })),
+    })),
+  };
+}
+
+/** Quantos cards a cascata desta etapa revela, e com que rótulo.
+ *
+ *  ESPELHA a composição do painel da sala (`VideoRoom`, `.vr-pbl-side`): há
+ *  etapas cujo conteúdo principal não está no `RoteiroStage`, e sim numa
+ *  cascata ao lado dele. Os rótulos são conferidos contra o VideoRoom por
+ *  prova — se lá mudar, aqui falha em vez de prometer outra tela. */
+const CASCATA: Record<string, { label: string; campo: string }> = {
+  question: { label: "Questões para reflexão", campo: "questoesPlenaria" },
+  situational: { label: "Riscos a avaliar", campo: "riscos" },
+};
+
+/** A TELA DA SALA, com o que está sendo editado agora.
+ *
+ *  É o componente da videoconferência (`RoteiroStage`), não uma imitação: o
+ *  módulo é o mesmo que a aula renderiza. Por isso o preview não pode divergir
+ *  da sala — divergir exigiria que a sala mudasse, e aí os dois mudam juntos.
+ *
+ *  A caixa tem a PROPORÇÃO do painel real (~35% da largura por toda a altura).
+ *  Isso basta porque `.vr-pbl-present-big` é um `container-type: size` e a
+ *  tipografia da sala é medida em `cqi`/`cqh`: o texto encolhe junto com a
+ *  caixa, então o que se vê aqui é o que se vê lá, em escala. */
+function PreviewDaEtapa({ etapa, cfg, dados }: {
+  etapa: Etapa; cfg: Config; dados: Dados;
+}) {
+  const [shown, setShown] = useState(1);
+  const retrato = useMemo(() => retratoDoPreview(cfg, dados), [cfg, dados]);
+  useEffect(() => { setShown(1); }, [etapa.id]);
+
+  const cascata = CASCATA[etapa.id];
+  const itens = cascata
+    ? (retrato.campos?.[cascata.campo] as string[] | undefined) || []
+    : etapa.id === "synopsis" ? ["«Sinopse — card 1/2»", "«Sinopse — card 2/2»"]
+    : etapa.id === "groups"
+      ? (retrato.campos?.questoesOrientadoras as string[] | undefined) || []
+      : [];
+  const totalCards = Math.max(itens.length, 1);
+  const grafico = etapa.id === "show_chart" || etapa.id === "closing";
+
   return (
-    <div className="enc-preview">
-      <div className="enc-preview-topo">
-        <span>{etapa.titulo}</span>
-        <span className="ad-muted">{dur(etapa.duracao_s)}</span>
+    <>
+      <div className="enc-tela">
+        <div className="vr-pbl-present-big">
+          {grafico ? (
+            // O gráfico desenha dados de alunos que ainda não existem; inventar
+            // números aqui seria o preview mentindo sobre o encontro.
+            <div className="vr-pbl-question">
+              <div className="vr-pbl-question-waiting">
+                Gráfico de riscos
+                <span>Desenhado com as respostas da turma — não há o que prever aqui.</span>
+              </div>
+            </div>
+          ) : cascata ? (
+            <QuestionCascade items={itens.slice(0, shown)} total={itens.length}
+              label={cascata.label} progress emphasize
+              intro={etapa.id === "question" ? rIntroQuestoes(retrato) : undefined} />
+          ) : (
+            <RoteiroStage stage={etapa.id as any} roteiro={retrato} shown={shown} />
+          )}
+        </div>
       </div>
-      <div className="enc-preview-corpo">
-        {vazio && <p className="ad-muted">Sem texto e sem campos do roteiro nesta etapa.</p>}
-        {blocos.map((b, i) => (
-          <div className="enc-preview-bloco" key={i}>
-            {b.titulo && <strong>{b.titulo}</strong>}
-            {b.lista
-              ? <ul>{b.paragrafos.map((t, k) => <li key={k}>{t || <em>(vazio)</em>}</li>)}</ul>
-              : b.paragrafos.map((t, k) => <p key={k}>{t || <em>(vazio)</em>}</p>)}
-          </div>
-        ))}
-        {etapa.campos.map((c) => (
-          <div className="enc-preview-slot" key={c.name}>
-            <span>{c.label}</span>
-            {(c.itensPrevistos || 0) > 1 && (
-              <em>{Array.from({ length: c.itensPrevistos! },
-                (_, i) => `${c.rotuloItem || "item"} ${i + 1}`).join(" · ")}</em>
-            )}
-            <small>conteúdo do episódio, preenchido no roteiro</small>
-          </div>
-        ))}
+      <div className="enc-tela-pe">
+        <span className="ad-muted enc-nota">
+          Tela real da sala, na proporção do painel. O conteúdo do episódio aparece
+          como «marcador».
+        </span>
+        {totalCards > 1 && (
+          <span className="enc-cards">
+            <button className="ad-link" disabled={shown <= 1}
+              onClick={() => setShown((n) => Math.max(1, n - 1))}>◀</button>
+            card {Math.min(shown, totalCards)} de {totalCards}
+            <button className="ad-link" disabled={shown >= totalCards}
+              onClick={() => setShown((n) => Math.min(totalCards, n + 1))}>▶</button>
+          </span>
+        )}
       </div>
-    </div>
+    </>
   );
 }
 

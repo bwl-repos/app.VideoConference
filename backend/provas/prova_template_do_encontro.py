@@ -65,8 +65,14 @@ def ler(caminho: str) -> str:
     return io.open(RAIZ / caminho, encoding="utf-8").read()
 
 
-FRONT = ler("../frontend/src/components/video/VideoRoom.tsx")
+#: A tela da sala sao DOIS arquivos desde que o preview do painel passou a
+#: usar os mesmos componentes da aula: o sequenciador (`STEPS`) ficou no
+#: VideoRoom e a tela do roteiro foi para `RoteiroStage.tsx`. As afirmacoes
+#: daqui sao sobre a TELA, nao sobre um arquivo.
+FRONT = (ler("../frontend/src/components/video/VideoRoom.tsx")
+         + ler("../frontend/src/components/video/RoteiroStage.tsx"))
 SDK = ler("../frontend/src/lib/video-rooms-sdk.ts")
+VIDEOROOM = ler("../frontend/src/components/video/VideoRoom.tsx")
 ROOMS = ler("app/routers/rooms.py")
 ROTA = ler("app/routers/encontro.py")
 TELA = ler("../frontend/src/admin/EncontroPage.tsx")
@@ -357,17 +363,30 @@ conferir("const irmas = etapas.filter(" in TELA,
          "e diz quais OUTRAS etapas mostram o mesmo texto",
          "tres etapas dividem a abertura: editar uma muda as tres")
 
-#: O PREVIEW DESENHA COM A REGRA DA SALA.
+#: O PREVIEW E A TELA DA SALA, NAO UMA IMITACAO DELA.
 #:
-#: Nao e uma copia do layout (seria uma segunda implementacao da tela da sala),
-#: mas a REGRA de renderizacao tem de ser a mesma: um bloco marcado `lista` que
-#: aparece como paragrafo aqui promete uma tela que a aula nao mostra.
-conferir("b.lista" in TELA and "<ul>" in TELA,
-         "o preview respeita `lista` como a sala respeita",
-         "bloco de criterios de risco vira marcadores nos dois lugares")
-conferir("b.lista ? (" in FRONT,
-         "CONTROLE: e a sala continua tendo essa regra",
-         "a afirmacao acima so vale enquanto as duas existirem")
+#: Enquanto o painel desenhava a sua propria versao, qualquer ajuste de CSS ou
+#: de regra na sala fazia o preview prometer uma tela que o encontro nao
+#: mostra -- e ninguem notaria, porque as duas continuariam "funcionando".
+#: Com o componente compartilhado o problema deixa de existir: divergir
+#: exigiria que a SALA mudasse, e ai os dois mudam juntos.
+conferir('from "../components/video/RoteiroStage"' in TELA
+         and "<RoteiroStage" in TELA,
+         "o preview renderiza o componente DA SALA",
+         "uma copia no painel divergiria no primeiro ajuste de CSS")
+conferir('from "./RoteiroStage"' in VIDEOROOM,
+         "e a sala importa o MESMO modulo",
+         "se a sala tivesse a copia dela, o compartilhamento seria aparencia")
+#: E os ROTULOS das cascatas sao os mesmos dos dois lados.
+#:
+#: Ha etapas cujo conteudo principal nao esta no `RoteiroStage`, e sim numa
+#: cascata ao lado dele -- o preview espelha essa composicao. Um rotulo que
+#: exista so no painel anuncia uma tela diferente da que a aula mostra.
+rotulos = ["Questões para reflexão"]
+faltando = [r for r in rotulos if r not in TELA or r not in VIDEOROOM]
+conferir(not faltando,
+         "e os rotulos das cascatas batem com os da sala",
+         "rotulo so no painel anuncia uma tela diferente da aula: %s" % faltando)
 
 print()
 print("8) quem pode configurar")

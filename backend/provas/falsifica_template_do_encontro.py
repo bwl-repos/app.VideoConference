@@ -258,10 +258,25 @@ ESTRAGOS = [
      "  const irmas = etapas.filter(\n",
      "  const irmas = [].filter(\n"),
 
-    ("o preview para de respeitar `lista` (promete tela que a aula nao mostra)",
+    ("o preview deixa de usar a tela da sala (volta a ser uma imitacao)",
      TELA,
-     "              ? <ul>{b.paragrafos.map((t, k) => <li key={k}>{t || <em>(vazio)</em>}</li>)}</ul>",
-     "              ? b.paragrafos.map((t, k) => <p key={k}>{t}</p>)"),
+     '            <RoteiroStage stage={etapa.id as any} roteiro={retrato} shown={shown} />',
+     '            <div className="enc-imitacao">{retrato.secoes?.length} blocos</div>'),
+
+    ("o painel passa a importar de um modulo proprio",
+     TELA,
+     'from "../components/video/RoteiroStage";',
+     'from "./PreviewProprio";'),
+
+    ("a sala passa a ter a copia DELA da tela do roteiro",
+     FRONT,
+     'from "./RoteiroStage";',
+     'from "./RoteiroStageDaSala";'),
+
+    ("o rotulo da cascata do preview diverge do da sala",
+     TELA,
+     'label: "Questões para reflexão", campo: "questoesPlenaria"',
+     'label: "Questoes da plenaria", campo: "questoesPlenaria"'),
 
     # ── 7. QUEM PODE CONFIGURAR ─────────────────────────────────────────────
     ("a previa da voz fica aberta a quem tiver a URL",

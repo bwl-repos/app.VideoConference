@@ -94,7 +94,17 @@ def corpo(fonte: str, assinatura: str) -> str:
 PORTA = ler("app/services/voz_porta.py")
 ROOMS = ler("app/routers/rooms.py")
 AULA = ler("app/routers/openpbl_class.py")
-FRONT = (RAIZ.parent / "frontend/src/components/video/VideoRoom.tsx").read_text(encoding="utf-8")
+#: A TELA DA SALA SAO DOIS ARQUIVOS, e as afirmacoes valem sobre os dois.
+#:
+#: `RoteiroStage.tsx` saiu do `VideoRoom.tsx` quando o painel admin passou a
+#: mostrar o preview de cada etapa com os MESMOS componentes da aula. Somar os
+#: dois aqui nao e conveniencia: as asercoes deste arquivo sao sobre haver UM
+#: mapa de etapa->secao, UMA lista de blocos, UM filtro de vazios. Lidas so no
+#: VideoRoom, uma copia nova no modulo vizinho passaria despercebida.
+FRONT = ((RAIZ.parent / "frontend/src/components/video/VideoRoom.tsx")
+         .read_text(encoding="utf-8")
+         + (RAIZ.parent / "frontend/src/components/video/RoteiroStage.tsx")
+         .read_text(encoding="utf-8"))
 SDK = (RAIZ.parent / "frontend/src/lib/video-rooms-sdk.ts").read_text(encoding="utf-8")
 
 #: Um roteiro como o CustomerApp manda: duas seções, um aviso REPETIDO entre

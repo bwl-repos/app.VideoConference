@@ -198,7 +198,7 @@
 .enc-dur { display:flex; align-items:center; gap:8px; margin-top:4px; }
 .enc-dur input { width:86px; }
 
-.enc-dois { display:grid; grid-template-columns:1fr minmax(240px, 380px); gap:20px; align-items:start; }
+.enc-dois { display:grid; grid-template-columns:minmax(0, 1fr) minmax(280px, 400px); gap:20px; align-items:start; }
 
 /* fichas dos lugares do roteiro: o nome do campo e os índices previstos */
 .enc-chips { display:flex; flex-wrap:wrap; gap:6px; margin:6px 0; }
@@ -217,24 +217,22 @@
 .enc-pausa { margin:0; width:96px; flex:none; font-size:11px; }
 .enc-pausa input { width:100%; }
 
-/* preview: o que entra na tela da etapa. Moldura DIFERENTE da sala de
- * propósito — é um esquema do conteúdo, não uma cópia do layout dela. */
-.enc-preview { border:1px solid #d9dce1; border-radius:10px; overflow:hidden; background:#fff; }
-.enc-preview-topo { display:flex; justify-content:space-between; align-items:center;
-  background:#1a1d23; color:#e7e9ee; padding:8px 12px; font-size:12px; font-weight:600; }
-.enc-preview-topo .ad-muted { color:#9aa1ad; }
-.enc-preview-corpo { padding:12px; display:flex; flex-direction:column; gap:10px; font-size:13px; }
-.enc-preview-bloco { background:#f6f7f9; border-left:3px solid #cfd5dc; border-radius:6px; padding:8px 10px; }
-.enc-preview-bloco strong { display:block; margin-bottom:4px; }
-.enc-preview-bloco p { margin:0 0 6px; line-height:1.45; }
-.enc-preview-bloco p:last-child { margin-bottom:0; }
-.enc-preview-bloco ul { margin:0; padding-left:18px; line-height:1.5; }
-.enc-preview-bloco em { color:#9aa1ad; }
-.enc-preview-slot { border:1px dashed #cfd5dc; border-radius:8px; padding:8px 10px;
-  display:flex; flex-direction:column; gap:2px; background:#fcfdfe; }
-.enc-preview-slot span { font-weight:600; font-size:12px; }
-.enc-preview-slot em { font-style:normal; font-size:11px; color:#6b7280; }
-.enc-preview-slot small { font-size:11px; color:#9aa1ad; }
+/* A TELA DA SALA, de verdade.
+ *
+ * O conteudo aqui dentro e o componente da videoconferencia (`RoteiroStage`),
+ * com o CSS dela (`room.css`). A caixa so da a PROPORCAO do painel real -- 35%
+ * da largura da tela por toda a altura. Como `.vr-pbl-present-big` e um
+ * `container-type: size` e a tipografia da sala e medida em `cqi`/`cqh`, o
+ * texto encolhe junto: o que se ve aqui e o que se ve la, em escala.
+ */
+.enc-coluna-tela { position:sticky; top:12px; }
+.enc-tela { width:100%; aspect-ratio:56 / 86; max-height:62vh; display:flex; }
+.enc-tela .vr-pbl-present-big { flex:1; min-width:0; min-height:0; }
+.enc-tela-pe { display:flex; align-items:center; justify-content:space-between;
+  gap:10px; margin-top:6px; flex-wrap:wrap; }
+.enc-cards { display:inline-flex; align-items:center; gap:6px; font-size:12px;
+  color:#6b7280; font-weight:600; white-space:nowrap; }
+.enc-cards button { font-size:13px; padding:0 2px; }
 
 /* ensaio */
 .enc-ensaio { display:flex; flex-direction:column; align-items:flex-end; gap:6px; max-width:340px; }
