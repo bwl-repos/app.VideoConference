@@ -2950,9 +2950,14 @@ function ModalDaVotacao({ roomId, estado, identity, nomeDe, presentes, elegiveis
     ultima.current = null;
     if (fechada === resultado.chave) return;
     setFim(resultado);
+  }, [tipo, chave, votaram, base, JSON.stringify(linhas)]);
+  // Em efeito próprio: a contagem de presentes muda no polling e cancelaria este relógio,
+  // deixando o resultado preso na tela, por cima de tudo.
+  useEffect(() => {
+    if (!fim) return;
     const t = setTimeout(() => setFim(null), 5000);
     return () => clearTimeout(t);
-  }, [tipo, chave, votaram, base, JSON.stringify(linhas)]);
+  }, [fim]);
   useEffect(() => { setMeuLider(null); }, [chave]);
 
   const mostrar = tipo ? (fechada !== chave ? { titulo, linhas, votaram, base } : null) : fim;
