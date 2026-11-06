@@ -567,7 +567,7 @@ function PreviewDaEtapa({ etapa, cfg, dados }: {
               label={cascata.label} progress emphasize
               intro={etapa.id === "question" ? rIntroQuestoes(retrato) : undefined} />
           ) : (
-            <RoteiroStage stage={etapa.id as any} roteiro={retrato} shown={shown} />
+            <RoteiroStage orientadoras stage={etapa.id as any} roteiro={retrato} shown={shown} />
           )}
         </div>
       </div>

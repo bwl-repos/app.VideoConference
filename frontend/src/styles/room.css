@@ -88,7 +88,6 @@
 
    Medido com `scratchpad/medir_cabecalho.py`, que carrega este arquivo e
    compara os retângulos: 1024px passa, 860px não. */
-}
 .vr-brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .vr-logo {
   width: 28px; height: 28px; border-radius: 8px;
@@ -1587,3 +1586,449 @@ button.vr-seq-label:disabled { opacity: .6; cursor: default; }
 }
 .vr-voz__btn:hover { background: rgba(255,255,255,.12); }
 .vr-voz__btn:disabled { opacity: .45; cursor: default; }
+
+/* ==== TEMA DO SITE ====
+   A sala igual ao mock do openpbl.ai (section #execucao, `.plen`). As medidas e as
+   cores vêm de lá: o mock foi desenhado sobre 1600px, então 1 unidade dele = 1px. */
+@font-face { font-family: "Geist"; src: url("/fonts/Geist.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: "Geist Mono"; src: url("/fonts/GeistMono.woff2") format("woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Mouser"; src: url("/fonts/Mouser.woff2") format("woff2"); font-weight: 400; font-display: swap; }
+
+.vr-root {
+  --vr-bg: #0b0c13;
+  --vr-font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: var(--vr-bg);
+  font-family: "Geist", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: #e1e5ea;
+}
+
+/* --- Cabeçalho --- */
+.vr-header { padding: 13px 16px 10px; }
+/* As duas pontas com a mesma base deixam o título no centro real da tela, sem tirar
+   ninguém do fluxo. `max-content`: se não couber, o cabeçalho quebra em vez de sobrepor. */
+@media (min-width: 1025px) {
+  .vr-brand { flex: 1 1 0; min-width: max-content; }
+  .vr-header-end { flex: 1 1 0; min-width: min-content; }
+  .vr-actbar { flex: 0 0 auto; }
+}
+.vr-brand { gap: 9px; }
+.vr-wordmark { font-family: "Mouser", "Geist", sans-serif; font-size: 9px; color: #55606b; letter-spacing: .02em; white-space: nowrap; }
+.vr-brandmeta { gap: 9px; }
+.vr-clock { font-size: 21px; font-weight: 500; color: #eef2f6; letter-spacing: 0; }
+.vr-brandmeta-sep { color: #39424c; font-size: 19px; opacity: 1; }
+.vr-code-plain { gap: 9px; }
+.vr-code-val { font-family: var(--vr-font-mono); font-size: 18px; color: #c8d1da; }
+.vr-code-plain-ico, .vr-code-plain-eye { color: #6a757f; }
+.vr-code-plain-ico svg, .vr-code-plain-eye svg { width: 15px; height: 15px; }
+.vr-code-plain-eye { padding: 0; }
+.vr-code-plain:hover .vr-code-plain-ico, .vr-code-plain-eye:hover { color: #c8d1da; }
+
+.vr-actbar-info { min-width: 0; }
+.vr-actbar-name { font-size: 19px; font-weight: 700; letter-spacing: 0; color: #fff; }
+.vr-actbar-prog { margin-top: 8px; height: 3px; border-radius: 2px; background: transparent; }
+.vr-actbar-prog i { border-radius: 2px; background: linear-gradient(90deg, #31b969 0%, #31b969 68%, rgba(49, 185, 105, 0) 100%); }
+
+/* Controles: ícone sem caixa, descrição embaixo. */
+.vr-controls { gap: 26px; flex-wrap: nowrap; }
+.vr-sep { display: none; }
+.vr-ctrl { padding: 0; gap: 6px; color: #9aa6b2; transition: color .15s; }
+.vr-ctrl-ico { width: auto; min-width: 19px; height: 19px; border-radius: 0; color: #aab4be; background: none; transition: color .15s; }
+.vr-ctrl svg { width: 19px; height: 19px; }
+.vr-ctrl-lbl { font-size: 9.5px; font-weight: 400; }
+.vr-ctrl:hover .vr-ctrl-ico { background: none; color: #fff; }
+.vr-ctrl:hover { color: #c8d1da; }
+.vr-ctrl:focus-visible .vr-ctrl-ico { outline-offset: 4px; border-radius: 4px; }
+.vr-ctrl[data-off="true"] .vr-ctrl-ico { background: none; color: #f0666b; }
+.vr-ctrl[data-active="true"] .vr-ctrl-ico { background: none; color: #31b969; }
+.vr-ctrl[data-active="true"] { color: #31b969; }
+.vr-ctrl[data-leave="true"] { color: #f0666b; }
+.vr-ctrl[data-leave="true"] .vr-ctrl-ico { width: 48px; height: 27px; border-radius: 7px; background: #e5484d; color: #fff; }
+.vr-ctrl[data-leave="true"]:hover .vr-ctrl-ico { background: #f0666b; color: #fff; }
+.vr-ctrl[data-leave="true"] svg { width: 16px; height: 16px; }
+
+/* O que o mock não mostra continua aqui, mas discreto: texto, sem caixa. */
+.vr-header-end { gap: 26px; }
+/* O "Sair" fecha a linha, como no mock: o REC fica antes dos controles. */
+.vr-meta { order: -1; }
+.vr-header-right { gap: 26px; }
+.vr-header-status { gap: 14px; }
+.vr-actbar-ghost {
+  height: auto; padding: 0; border: none; border-radius: 0; background: none;
+  font-size: 11px; font-weight: 500; color: #6a757f; cursor: pointer;
+}
+.vr-actbar-ghost:hover { color: #c8d1da; border: none; }
+.vr-actbar-ghost[data-auto] { color: #31b969; background: none; border: none; }
+.vr-relogio { padding: 0; border: none; background: none; font-size: 11px; }
+.vr-relogio__rotulo { color: #6a757f; }
+.vr-relogio__tempo { font-weight: 500; color: #aab4be; }
+.vr-hist__botao, .vr-voz__btn { padding: 0; border: none; background: none; font-size: 11px; color: #6a757f; }
+.vr-hist__botao:hover, .vr-voz__btn:hover { background: none; color: #c8d1da; }
+
+/* --- Área da aula --- */
+.vr-stage { padding: 0 12px 10px; gap: 12px; }
+
+/* Coluna: câmera e cartão lado a lado, questões abaixo. */
+.vr-pbl-side {
+  --vr-cam-h: 0px;   /* a câmera deixou de flutuar: nada mais a reservar */
+  width: 34.5%; background: #0c1218; overflow: visible;
+  border: 1px solid rgba(255, 255, 255, .05); border-radius: 14px; box-shadow: none;
+}
+/* Acima do conteúdo e da grade: as listas do cartão (histórico, transcrição) abrem por cima. */
+.vr-pbl-side .vr-pbl-head {
+  position: relative; top: 0; left: 0; z-index: 20; pointer-events: auto;
+  width: auto; flex: none; flex-direction: row; align-items: stretch; gap: 9px;
+  padding: 15px 14px 0;
+}
+.vr-pbl-side .vr-pbl-head-cam,
+.vr-pbl-side .vr-pbl-head[data-wide="1"] .vr-pbl-head-cam {
+  flex: 0 0 45.2%; width: auto; aspect-ratio: 237 / 147;
+  border: none; border-radius: 9px; box-shadow: none;
+}
+.vr-pbl-head-name {
+  left: 7px; bottom: 7px; font-size: 11px; font-weight: 500; border-radius: 6px; padding: 1px 8px;
+  background: rgba(10, 12, 20, .55); border-color: rgba(255, 255, 255, .06);
+}
+.vr-pbl-brief {
+  flex: 1 1 0; min-width: 0; min-height: 96px; display: flex; flex-direction: column;
+  padding: 11px; border-radius: 9px; background: #0b1114;
+  border: 1px solid rgba(49, 185, 105, .16);
+}
+.vr-pbl-brief-cab { display: flex; align-items: center; gap: 9px; margin-bottom: 7px; }
+.vr-pbl-brief-go {
+  flex: none; display: grid; place-items: center; width: 34px; height: 25px; padding: 0;
+  border: none; border-radius: 6px; background: #2fbf5f; color: #06220f; cursor: pointer;
+  transition: background .15s, transform .1s;
+}
+.vr-pbl-brief-go:hover { background: #3fd071; }
+.vr-pbl-brief-go:active { transform: scale(.95); }
+.vr-pbl-brief-go:disabled { opacity: .55; cursor: default; }
+.vr-pbl-brief-go:focus-visible { outline: 2px solid #31b969; outline-offset: 2px; }
+.vr-pbl-brief-go svg { width: 12px; height: 12px; }
+.vr-pbl-brief-go[data-danger] { background: #e5484d; color: #fff; }
+.vr-pbl-brief-go[data-danger]:hover { background: #f0666b; }
+.vr-pbl-brief-go[data-rotulo] { width: auto; padding: 0 11px; font-family: inherit; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+
+.vr-pbl-brief-rot {
+  min-width: 0; font-size: 11px; font-weight: 600; line-height: 1.25;
+  letter-spacing: .04em; text-transform: uppercase; color: #9fb0bf;
+}
+.vr-pbl-brief-txt { margin: 0; font-size: 11.5px; line-height: 1.4; color: #8698a8; }
+
+/* Modo automático: o que vem a seguir e o tempo que falta. */
+.vr-prox {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px 16px;
+  margin-top: 3px; padding-top: 9px; border-top: 1px solid rgba(255, 255, 255, .06);
+}
+.vr-prox-info { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.vr-prox-rot { font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: #31b969; }
+.vr-prox-tit { font-size: 14px; font-weight: 600; line-height: 1.3; color: #fff; }
+.vr-prox-sin { margin: 0; font-size: 11.5px; line-height: 1.4; color: #8698a8; }
+.vr-prox-tempo b { font-size: 24px; font-weight: 600; line-height: 1; letter-spacing: -.01em; font-variant-numeric: tabular-nums; color: #eef2f6; }
+.vr-prox-seguindo { font-size: 12px; color: #8698a8; }
+.vr-prox-barra { grid-column: 1 / -1; height: 3px; border-radius: 2px; background: rgba(255, 255, 255, .06); overflow: hidden; }
+.vr-prox-barra i { display: block; height: 100%; border-radius: 2px; background: #31b969; transition: width 1s linear; }
+
+/* Voltar: quase invisível de propósito, e longe do play. A área de clique é maior que o
+   desenho, para achar sem precisar de pontaria quando for preciso. */
+.vr-pbl-brief-voltar {
+  flex: none; margin-left: auto; width: 20px; height: 20px; padding: 0;
+  display: grid; place-items: center; border: none; border-radius: 4px; background: none;
+  color: #2f3943; cursor: pointer; transition: color .2s, background .2s;
+}
+.vr-pbl-brief-voltar svg { width: 12px; height: 12px; }
+.vr-pbl-brief-voltar:hover:not(:disabled) { color: #aab4be; background: rgba(255, 255, 255, .06); }
+.vr-pbl-brief-voltar:focus-visible { outline: 1.5px solid #31b969; outline-offset: 1px; color: #aab4be; }
+.vr-pbl-brief-voltar:disabled { cursor: default; }
+
+/* Ações da aula: uma fileira no pé do cartão, ícones do mesmo tamanho e traço.
+   O que dá para explicar por texto (Manual, Mostrar gráfico) continua texto. */
+.vr-pbl-brief-acoes {
+  margin-top: auto; padding-top: 9px; display: flex; flex-wrap: wrap; align-items: center; gap: 5px;
+}
+.vr-pbl-brief-acoes:empty { display: none; }
+.vr-pbl-brief-acoes > .vr-voz { display: contents; }
+.vr-pbl-brief-acoes .vr-acao-rot { display: none; }
+.vr-pbl-brief-acoes button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  height: 25px; min-width: 25px; padding: 0 7px; border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, .08); background: rgba(255, 255, 255, .03);
+  font-family: inherit; font-size: 11px; font-weight: 500; line-height: 1; color: #aab4be; cursor: pointer;
+  transition: color .15s, background .15s, border-color .15s;
+}
+.vr-pbl-brief-acoes button:hover:not(:disabled) { color: #fff; background: rgba(255, 255, 255, .08); border-color: rgba(255, 255, 255, .16); }
+.vr-pbl-brief-acoes button:disabled { opacity: .45; cursor: default; }
+.vr-pbl-brief-acoes button:focus-visible { outline: 2px solid #31b969; outline-offset: 1px; }
+.vr-pbl-brief-acoes button[aria-expanded="true"] { color: #fff; background: rgba(255, 255, 255, .1); border-color: rgba(255, 255, 255, .2); }
+.vr-pbl-brief-acoes .vr-actbar-ghost[data-auto] { color: #31b969; border-color: rgba(49, 185, 105, .35); background: rgba(49, 185, 105, .08); }
+.vr-pbl-brief-acoes .vr-relogio { order: 9; margin-left: auto; }
+.vr-pbl-brief .vr-hist__lista { left: 0; right: auto; }
+.vr-hist__botao svg, .vr-voz__btn svg { width: 14px; height: 14px; flex: none; }
+.vr-hist__botao, .vr-voz__btn { display: inline-flex; align-items: center; gap: 5px; }
+.vr-acao-num { font-size: 10px; font-variant-numeric: tabular-nums; color: #6a757f; }
+.vr-voz__btn[data-falando] { color: #31b969; }
+.vr-voz__btn[data-mudo] { color: #f0666b; }
+
+/* Telas do roteiro e cascata: o fundo é o da coluna. */
+.vr-pbl-side .vr-pbl-present-big { background: none; }
+.vr-pbl-side .vr-pbl-question { background: none; padding: 14px; gap: 14px; }
+.vr-pbl-side .vr-pbl-question[data-inline] { padding: 0; }
+.vr-pbl-side .vr-rot { background: none; padding: 14px; }
+.vr-pbl-side .vr-pbl-present-big[data-banner] .vr-pbl-question { background: rgba(11, 13, 18, .8); }
+.vr-pbl-intro {
+  border-radius: 11px; background: #10171d; border: 1px solid rgba(255, 255, 255, .04); color: #8698a8;
+}
+
+/* Questões: as anteriores recuam desfocadas, a atual é a única nítida. */
+.vr-pbl-qcascade { gap: 17px; }
+/* O cartão tem tamanho próprio (o do mock) e não estica para preencher a coluna: os
+   próximos entram abaixo dele. Sem espaço, todos encolhem por igual. */
+.vr-pbl-qcascade .vr-pbl-qcard { flex: 0 1 172px; }
+/* Até dois cartões sobra altura: o texto longo da sinopse cresce o quanto precisar. */
+.vr-pbl-qcascade[data-qn="1"] .vr-pbl-qcard,
+.vr-pbl-qcascade[data-qn="2"] .vr-pbl-qcard { flex: 0 1 auto; min-height: min(172px, 45%); }
+.vr-pbl-qcard {
+  gap: 25px; padding: 10px 26px 10px 29px; border-radius: 11px;
+  background: #10171d; border: 1px solid rgba(255, 255, 255, .04);
+}
+.vr-pbl-qcard-num {
+  width: 30px; height: 30px; background: none; border: 1px solid rgba(255, 255, 255, .14);
+  font-size: 14px; font-weight: 600; color: #5d6b78;
+}
+.vr-pbl-qcard-text {
+  font-size: clamp(13px, min(3.75cqi, calc(30cqh / var(--vr-qn, 3))), 20.6px);
+  line-height: 1.5; font-weight: 600; color: #e1e5ea;
+}
+.vr-pbl-qcascade[data-emphasize="1"] .vr-pbl-qcard:not([data-latest="1"]) { opacity: 1; }
+.vr-pbl-qcascade[data-emphasize="1"] .vr-pbl-qcard:not([data-latest="1"]) .vr-pbl-qcard-text { color: #55636f; filter: blur(1.5px); }
+.vr-pbl-qcard[data-latest="1"] {
+  background: #131a24; border-color: #2f7fe0; box-shadow: 0 0 26px rgba(47, 127, 224, .16);
+}
+.vr-pbl-qcard[data-latest="1"] .vr-pbl-qcard-num { background: #2f7fe0; border-color: #2f7fe0; color: #fff; }
+.vr-pbl-qcard[data-latest="1"] .vr-pbl-qcard-text { color: #fff; }
+
+/* Quatro ou cinco cartões na tela: o texto real chega a 4 linhas, e na fonte cheia ele
+   era cortado em cima e embaixo. A fonte cede antes da frase. */
+.vr-pbl-qcascade:has(.vr-pbl-qcard:nth-child(4)) { gap: 10px; }
+.vr-pbl-qcascade:has(.vr-pbl-qcard:nth-child(4)) .vr-pbl-qcard { flex: 1 1 0; padding-block: 6px; gap: 20px; }
+.vr-pbl-qcascade:has(.vr-pbl-qcard:nth-child(4)) .vr-pbl-qcard-text { font-size: clamp(13px, 2vh, 18px); line-height: 1.25; }
+
+/* --- Surgimento e digitação ---
+   Os cartões chegam da esquerda para a direita, um de cada vez: o seguinte só surge
+   quando o anterior termina de digitar (`--vr-atraso`, calculado em RoteiroBlocos). */
+@keyframes vrSurge {
+  from { opacity: 0; transform: translateX(-28px) scale(.985); filter: blur(6px); }
+}
+/* Nos cartões, a borda chega acesa e se apaga: é o que marca a chegada sem exagero. */
+@keyframes vrSurgeCartao {
+  from { opacity: 0; transform: translateX(-28px) scale(.985); filter: blur(6px); border-color: rgba(49, 185, 105, .6); box-shadow: 0 0 28px rgba(49, 185, 105, .22); }
+  55% { border-color: rgba(49, 185, 105, .45); box-shadow: 0 0 22px rgba(49, 185, 105, .14); }
+}
+.vr-surge, .vr-pbl-qcard, .vr-pbl-brief {
+  /* `backwards`: invisível até a vez dele e, ao terminar, sem manter camada própria. */
+  animation: vrSurge .9s cubic-bezier(.25, .6, .3, 1) backwards;
+  animation-delay: var(--vr-atraso, calc(var(--vr-ordem, 0) * 160ms));
+}
+.vr-pbl-intro.vr-surge, .vr-pbl-qcard, .vr-pbl-brief {
+  animation-name: vrSurgeCartao;
+}
+/* O texto inteiro para leitores de tela; o que digita é só para os olhos. */
+.vr-dig-sr {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+}
+.vr-dig-resto { visibility: hidden; }
+/* Largura zero: o cursor não empurra a linha nem muda onde a palavra quebra. */
+.vr-dig-cursor {
+  display: inline-block; width: 0; height: 1em; margin-bottom: -.12em;
+  border-left: 1.5px solid currentColor; opacity: .7;
+}
+@media (prefers-reduced-motion: reduce) {
+  .vr-surge, .vr-pbl-qcard, .vr-pbl-brief { animation: none; }
+}
+
+/* Destaque do conteúdo variável: o azul do cartão da questão atual. */
+.vr-rot-destaque { background: #131a24; border-color: #2f7fe0; box-shadow: 0 0 26px rgba(47, 127, 224, .16); border-radius: 11px; color: #fff; }
+
+/* --- Class code ampliado, com o QR embutido --- */
+.vr-qr-arte { display: block; width: 100%; height: auto; border-radius: 14px; }
+.vr-qr-code { width: 268px; padding: 0; background: none; }
+.vr-pbl-code-big {
+  background: #10171d; border: 1px solid rgba(255, 255, 255, .08); border-radius: 20px;
+  animation: vrSurgeCartao .7s cubic-bezier(.25, .6, .3, 1) backwards;
+}
+.vr-pbl-code-big[data-com-qr] {
+  flex-direction: row; align-items: center; gap: clamp(28px, 4vw, 56px);
+  padding: clamp(24px, 3.4vw, 44px);
+}
+.vr-pbl-code-qr { flex: none; width: clamp(240px, 28vw, 400px); }
+.vr-pbl-code-info { min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.vr-pbl-code-big[data-com-qr] .vr-pbl-code-info { align-items: flex-start; }
+.vr-pbl-code-big .vr-pbl-code-label { font-size: 12px; font-weight: 600; letter-spacing: .08em; color: #31b969; }
+.vr-pbl-code-huge { font-family: var(--vr-font-mono); font-weight: 400; font-size: clamp(44px, 6vw, 92px); letter-spacing: .02em; color: #fff; text-align: left; }
+.vr-pbl-code-huge:hover, .vr-pbl-code-huge:active { color: #31b969; }
+.vr-pbl-code-hint { font-size: 12px; color: #6a757f; }
+.vr-pbl-code-passos {
+  margin: 8px 0 0; padding: 14px 0 0 18px; max-width: 34ch; border-top: 1px solid rgba(255, 255, 255, .08);
+  font-size: 14px; line-height: 1.5; color: #aab4be;
+}
+.vr-pbl-code-passos li + li { margin-top: 6px; }
+.vr-pbl-code-passos li::marker { font-weight: 600; color: #31b969; }
+@media (max-width: 720px) {
+  .vr-pbl-code-big[data-com-qr] { flex-direction: column; }
+  .vr-pbl-code-big[data-com-qr] .vr-pbl-code-info { align-items: center; }
+  .vr-pbl-code-huge { text-align: center; }
+}
+@media (prefers-reduced-motion: reduce) { .vr-pbl-code-big { animation: none; } }
+
+/* --- Grupos ---
+   A barra de visita e o aviso do aluno no mesmo idioma dos botões do cartão. */
+.vr-bo-hostbar { display: flex; align-items: center; gap: 6px; margin: 0 12px 8px; padding: 0; background: none; border: none; box-shadow: none; }
+.vr-bo-hostbar-label { font-size: 11px; color: #6a757f; }
+.vr-bo-chip {
+  display: inline-flex; align-items: center; gap: 6px; height: 25px; padding: 0 9px; border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, .08); background: rgba(255, 255, 255, .03);
+  font-family: inherit; font-size: 11px; font-weight: 500; color: #aab4be; cursor: pointer; transition: color .15s, background .15s, border-color .15s;
+}
+.vr-bo-chip:hover { color: #fff; background: rgba(255, 255, 255, .08); border-color: rgba(255, 255, 255, .16); }
+.vr-bo-chip[data-active="true"] { color: #31b969; border-color: rgba(49, 185, 105, .35); background: rgba(49, 185, 105, .08); }
+.vr-bo-chip-n { font-size: 10px; color: #6a757f; font-variant-numeric: tabular-nums; }
+.vr-bo-hostbar-timer { margin-left: auto; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; color: #eef2f6; }
+.vr-bo-banner { margin: 0 12px 8px; padding: 8px 12px; border-radius: 9px; background: #0b1114; border: 1px solid rgba(49, 185, 105, .16); font-size: 12.5px; color: #aab4be; }
+.vr-bo-banner b { font-weight: 600; color: #fff; }
+
+/* --- Modais --- */
+.vr-modal:not(.vr-qr-modal) { max-width: 440px; }
+.vr-modal { position: relative; background: #10171d; border: 1px solid rgba(255, 255, 255, .08); border-radius: 14px; }
+.vr-modal .vr-sheet-close { position: absolute; top: 10px; right: 10px; }
+.vr-modal-btn-primary { background: #2f7fe0; }
+.vr-modal-btn-primary:hover { background: #4a92ea; }
+
+/* --- Grade dos alunos --- */
+.vr-pbl-students { align-content: start; justify-content: start; grid-auto-rows: auto; place-items: stretch; gap: 8px; scrollbar-gutter: auto; }
+.vr-pbl-students:has(> .vr-pbl-empty) { align-content: center; }
+.vr-pbl-tile {
+  width: 100%; height: 100%; aspect-ratio: auto; border-width: 2px; border-color: #e5484d; border-radius: 10px; background: #10171d;
+}
+.vr-pbl-tile[data-pkg="in"] { border-color: #2fbf5f; }
+.vr-pbl-empty { grid-column: 1 / -1; justify-self: center; color: #6a757f; font-size: 13px; }
+.vr-pbl-tile .lk-participant-metadata {
+  position: absolute; inset: auto 34px 7px 7px; padding: 0; margin: 0; width: auto; height: auto;
+  display: flex; background: none; border: none; backdrop-filter: none; -webkit-backdrop-filter: none;
+}
+.vr-pbl-tile .lk-participant-metadata-item {
+  display: inline-flex; align-items: center; gap: 5px; max-width: 100%; padding: 2px 8px; border-radius: 6px;
+  background: rgba(10, 12, 20, .55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  color: #fff; font-size: 12px; font-weight: 500; line-height: 1.35;
+}
+.vr-pbl-tile .lk-participant-name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vr-pbl-tile .lk-connection-quality { display: none; }
+.vr-sig { right: 8px; bottom: 8px; padding: 0; background: none; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .6)); }
+.vr-sig[data-nivel="3"] { color: #2fbf5f; }
+
+/* Líder geral */
+.vr-lider { display: flex; flex-direction: column; gap: 6px; margin-top: 9px; padding-top: 9px; border-top: 1px solid rgba(255, 255, 255, .06); }
+.vr-lider p { margin: 0; font-size: 11.5px; line-height: 1.4; color: #8698a8; }
+.vr-lider-cab { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.vr-lider-cab strong, .vr-lider-definido strong { font-size: 13px; font-weight: 600; color: #fff; }
+.vr-lider-cab b { font-size: 16px; font-weight: 600; color: #fff; font-variant-numeric: tabular-nums; }
+.vr-lider .vr-lider-nomes { font-size: 11px; color: #9fb0bf; }
+.vr-lider-go {
+  align-self: flex-start; padding: 7px 13px; border: none; border-radius: 6px; background: #2fbf5f; color: #06220f;
+  font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer; transition: background .15s;
+}
+.vr-lider-go:hover:not(:disabled) { background: #3fd071; }
+.vr-lider-go:disabled { background: rgba(49, 185, 105, .12); color: #31b969; cursor: default; }
+.vr-lider-go:focus-visible, .vr-lider-opcoes button:focus-visible { outline: 2px solid #31b969; outline-offset: 2px; }
+.vr-lider-opcoes { display: flex; flex-wrap: wrap; gap: 5px; }
+.vr-lider-opcoes button {
+  padding: 6px 10px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, .1); background: rgba(255, 255, 255, .04);
+  color: #d5dde4; font-family: inherit; font-size: 12px; cursor: pointer; transition: background .15s, border-color .15s;
+}
+.vr-lider-opcoes button:hover:not(:disabled) { background: rgba(255, 255, 255, .08); border-color: rgba(255, 255, 255, .16); }
+.vr-lider-opcoes button[data-escolhido] { color: #31b969; border-color: rgba(49, 185, 105, .45); background: rgba(49, 185, 105, .1); }
+.vr-lider-definido { flex-direction: row; align-items: baseline; gap: 8px; }
+.vr-lider-definido span { font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: #31b969; }
+.vr-lider-guia { margin: 0; padding-left: 17px; font-size: 11.5px; line-height: 1.5; color: #9fb0bf; }
+
+/* Ouvinte */
+.vr-ouvinte { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin-top: 9px; padding: 9px 10px; border-radius: 7px; background: rgba(245, 165, 36, .08); border: 1px solid rgba(245, 165, 36, .22); }
+.vr-ouvinte strong { font-size: 12.5px; font-weight: 600; color: #f5c26b; }
+.vr-ouvinte p { margin: 0; font-size: 11.5px; line-height: 1.4; color: #9fb0bf; }
+.vr-ouvinte button { margin-top: 3px; padding: 5px 10px; border-radius: 6px; border: 1px solid rgba(245, 165, 36, .35); background: transparent; color: #f5c26b; font-family: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer; }
+.vr-ouvinte button:hover { background: rgba(245, 165, 36, .1); }
+
+/* Marcas sobre a câmera */
+.vr-pbl-marcas { position: absolute; left: 6px; top: 6px; z-index: 3; display: flex; gap: 3px; pointer-events: none; }
+.vr-pbl-marcas span { padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; line-height: 1.3; background: rgba(6, 12, 15, .82); color: #d5dde4; }
+.vr-pbl-marcas span[data-tipo="lider"] { color: #31b969; }
+.vr-pbl-marcas span[data-tipo="ouvinte"] { color: #f5c26b; }
+.vr-pbl-marcas span[data-tipo="nf"] { color: #ff8a8e; }
+
+/* Sala de suporte */
+.vr-bo-chip-suporte[data-ajuda] { color: #f5c26b; border-color: rgba(245, 165, 36, .5); background: rgba(245, 165, 36, .12); }
+.vr-suporte { height: 100%; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 14px; padding: 18px; box-sizing: border-box; }
+.vr-suporte-cab h2 { margin: 0 0 4px; font-size: 19px; font-weight: 600; color: #fff; }
+.vr-suporte-cab p { margin: 0; font-size: 13px; line-height: 1.45; color: #8698a8; }
+.vr-suporte-corpo { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 190px; gap: 18px; }
+.vr-suporte-problemas { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 12px; }
+.vr-suporte-problemas button {
+  padding: 6px 10px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, .1); background: rgba(255, 255, 255, .04);
+  color: #9fb0bf; font-family: inherit; font-size: 12px; cursor: pointer; transition: background .15s, color .15s;
+}
+.vr-suporte-problemas button:hover { color: #fff; background: rgba(255, 255, 255, .08); }
+.vr-suporte-problemas button[aria-selected="true"] { color: #31b969; border-color: rgba(49, 185, 105, .4); background: rgba(49, 185, 105, .09); }
+.vr-suporte-problemas button:focus-visible, .vr-suporte-rodape button:focus-visible, .vr-suporte-acesso a:focus-visible { outline: 2px solid #31b969; outline-offset: 2px; }
+.vr-suporte-passos ol { margin: 0; padding-left: 19px; display: flex; flex-direction: column; gap: 8px; font-size: 13.5px; line-height: 1.45; color: #d5dde4; }
+.vr-suporte-acesso { display: flex; flex-direction: column; align-items: center; gap: 9px; }
+.vr-suporte-qr { width: 100%; max-width: 170px; padding: 8px; box-sizing: border-box; border-radius: 9px; background: #fff; }
+.vr-suporte-qr svg, .vr-suporte-qr img, .vr-suporte-qr canvas { display: block; width: 100%; height: auto; }
+.vr-suporte-codigo { display: flex; flex-direction: column; align-items: center; gap: 1px; }
+.vr-suporte-codigo span { font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: #8698a8; }
+.vr-suporte-codigo strong { font-size: 19px; font-weight: 600; letter-spacing: .04em; color: #fff; }
+.vr-suporte-acesso a { font-size: 12px; color: #31b969; }
+.vr-suporte-rodape { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding-top: 12px; border-top: 1px solid rgba(255, 255, 255, .06); }
+.vr-suporte-check { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: #8698a8; }
+.vr-suporte-check i { flex: none; width: 7px; height: 7px; border-radius: 50%; background: #31b969; animation: vr-suporte-pulso 1.6s ease-in-out infinite; }
+@keyframes vr-suporte-pulso { 50% { opacity: .3; } }
+.vr-suporte-rodape button { padding: 8px 14px; border-radius: 6px; border: 1px solid rgba(245, 165, 36, .4); background: rgba(245, 165, 36, .1); color: #f5c26b; font-family: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.vr-suporte-rodape button:hover:not(:disabled) { background: rgba(245, 165, 36, .18); }
+.vr-suporte-rodape button:disabled { opacity: .7; cursor: default; }
+@media (max-width: 720px) { .vr-suporte-corpo { grid-template-columns: minmax(0, 1fr); } }
+@media (prefers-reduced-motion: reduce) { .vr-suporte-check i { animation: none; } }
+
+/* Progresso das respostas, dentro do cartão */
+.vr-pbl-brief .vr-prog {
+  position: static; transform: none; margin-top: 8px; padding: 0; background: none; border: none; border-radius: 0;
+  backdrop-filter: none; font-size: 11.5px; color: #9fb0bf;
+}
+.vr-pbl-brief .vr-prog__barra { flex: 1 1 auto; }
+
+/* Coroa dos líderes */
+.vr-coroa { display: inline-block; flex: none; width: 1.15em; height: 1.15em; vertical-align: -.18em; color: #f5c542; }
+.vr-pbl-marcas span[data-tipo="lider"], .vr-pbl-marcas span[data-tipo="lider-grupo"] { display: inline-flex; align-items: center; gap: 4px; color: #f5c542; }
+.vr-lider-definido span { display: inline-flex; align-items: center; gap: 4px; }
+.vr-fac-card-lider { display: flex; align-items: center; justify-content: center; gap: 5px; margin-top: 2px; font-size: 12px; font-weight: 600; color: #d5dde4; }
+
+/* Votação em tempo real */
+.vr-votacao-fundo { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; padding: 16px; background: rgba(4, 8, 10, .62); }
+.vr-votacao { position: relative; width: min(520px, 100%); max-height: 100%; overflow: auto; padding: 22px; border-radius: 14px; background: #10171d; border: 1px solid rgba(49, 185, 105, .28); box-shadow: 0 20px 60px rgba(0, 0, 0, .5); }
+.vr-votacao-cab { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; padding-right: 30px; }
+.vr-votacao-cab h3 { margin: 0; font-size: 19px; font-weight: 600; color: #fff; }
+.vr-votacao-cab b { flex: none; font-size: 20px; font-weight: 600; color: #fff; font-variant-numeric: tabular-nums; }
+.vr-votacao-conta { margin: 4px 0 14px; font-size: 13px; color: #8698a8; font-variant-numeric: tabular-nums; }
+.vr-votacao-ops { display: flex; flex-direction: column; gap: 7px; }
+.vr-votacao-op {
+  position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 42px;
+  padding: 9px 13px; overflow: hidden; border-radius: 8px; border: 1px solid rgba(255, 255, 255, .1); background: rgba(255, 255, 255, .03);
+  color: #d5dde4; font-family: inherit; font-size: 13.5px; text-align: left; cursor: pointer;
+}
+.vr-votacao-op:disabled { cursor: default; color: #d5dde4; opacity: 1; }
+.vr-votacao-op:hover:not(:disabled) { border-color: rgba(255, 255, 255, .22); }
+.vr-votacao-op:focus-visible { outline: 2px solid #31b969; outline-offset: 2px; }
+.vr-votacao-op[data-minha] { border-color: rgba(49, 185, 105, .6); color: #fff; }
+.vr-votacao-op i { position: absolute; inset: 0 auto 0 0; background: rgba(49, 185, 105, .2); transition: width .35s ease; }
+.vr-votacao-nome, .vr-votacao-num { position: relative; }
+.vr-votacao-nome { min-width: 0; font-weight: 500; }
+.vr-votacao-num { flex: none; font-size: 12px; color: #9fb0bf; font-variant-numeric: tabular-nums; }
+.vr-votacao-nota { margin: 12px 0 0; font-size: 12px; color: #8698a8; }
+.vr-votacao-fim { margin: 14px 0 0; font-size: 15px; font-weight: 600; color: #31b969; }
+@media (prefers-reduced-motion: reduce) { .vr-votacao-op i { transition: none; } }

@@ -5,20 +5,20 @@ import {
   useMaybeTrackRefContext,
 } from "@livekit/components-react";
 import { Track, RoomEvent, Room, ConnectionState, ParticipantEvent, ConnectionQuality } from "livekit-client";
-import { QRCodeSVG } from "qrcode.react";
+import QrPersonalizado from "./QrPersonalizado";
 import "@livekit/components-styles";
 import "../../styles/room.css";
 import { useSDK } from "../../lib/sdk-context";
 import { guestAuth } from "../../lib/guest-auth";
 import { applyBranding, type Branding } from "../../lib/branding";
-import type { BreakoutState, BreakoutGroup, FalaTranscrita, OpenPblComunicacao, OpenPblStage, RoteiroSnapshot, RoteiroBlocoFixo } from "../../lib/video-rooms-sdk";
+import type { OpenPblLider, OpenPblSuporteMembro, BreakoutState, BreakoutGroup, FalaTranscrita, OpenPblComunicacao, OpenPblStage, RoteiroSnapshot, RoteiroBlocoFixo } from "../../lib/video-rooms-sdk";
 // A tela do roteiro mora em modulo proprio: o painel admin mostra o PREVIEW de
 // cada etapa com EXATAMENTE estes componentes, e importar dali o `VideoRoom`
 // inteiro levaria LiveKit e tldraw para dentro do pacote do admin.
 import {
   rTexto, rTextoComVoz, rListaComVoz, rLista, rBlocos, rTitulo,
   secaoDaEtapa, blocosDaEtapa, rIntroQuestoes, RoteiroBlocos, RoteiroStage,
-  QuestionCascade,
+  QuestionCascade, Digitando,
 } from "./RoteiroStage";
 import RoomChat from "./RoomChat";
 import LobbyPanel from "./LobbyPanel";
@@ -29,15 +29,15 @@ const Whiteboard = lazy(() => import("./Whiteboard"));
 const BreakoutPanel = lazy(() => import("./BreakoutPanel"));
 
 /** Estado da troca de mídia quando o participante/host está dentro de um grupo. */
-interface BreakoutMedia { token: string; url: string; groupId: string; groupName: string; endsAt: string | null; leaderName?: string; }
+interface BreakoutMedia { token: string; url: string; groupId: string; groupName: string; endsAt: string | null; leaderName?: string; leaderIdentity?: string | null; }
 /** Tudo que o RoomShell precisa para a UI de grupos. */
 interface BreakoutCtx {
-  active: { groupId: string; groupName: string; endsAt: string | null; leaderName?: string } | null;
+  active: { groupId: string; groupName: string; endsAt: string | null; leaderName?: string; leaderIdentity?: string | null } | null;
   message: string | null;
   identity?: string;
   displayName?: string;
   isStaff: boolean;
-  enter: (g: { id: string; name: string; leader_name?: string }, endsAt: string | null) => void;
+  enter: (g: { id: string; name: string; leader_name?: string; leader_identity?: string | null }, endsAt: string | null) => void;
   leave: () => void;
 }
 
@@ -58,25 +58,30 @@ interface Props {
 
 /* ---------------- icons (inline, no deps) ---------------- */
 const I = {
-  mic: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4"/></svg>,
-  micOff: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M1 1l22 22"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/><path d="M19 10v2a7 7 0 0 1-.11 1.23M12 19v4M5 10v2a7 7 0 0 0 12 5"/></svg>,
-  cam: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>,
-  camOff: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 1l22 22"/><path d="M16 16H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h1m4 0h4a2 2 0 0 1 2 2v4l1 1 5-3.5v9"/></svg>,
+  mic: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M19 11a7 7 0 0 1-14 0"/><path d="M12 18v3.5"/></svg>,
+  micOff: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M19 11a7 7 0 0 1-14 0"/><path d="M12 18v3.5"/><path d="M3 3l18 18"/></svg>,
+  cam: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="2.5" y="6.5" width="13" height="11" rx="2.5"/><path d="M15.5 10.5 21.5 7v10l-6-3.5z"/></svg>,
+  camOff: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="2.5" y="6.5" width="13" height="11" rx="2.5"/><path d="M15.5 10.5 21.5 7v10l-6-3.5z"/><path d="M3 3l18 18"/></svg>,
   screen: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>,
-  chat: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>,
+  chat: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M20.5 12a7.9 7.9 0 0 1-8.5 7.8 9 9 0 0 1-3.2-.6L3.5 21l1.8-4.5A7.6 7.6 0 0 1 4 12a7.9 7.9 0 0 1 8-7.8 7.9 7.9 0 0 1 8.5 7.8z"/></svg>,
   people: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
   board: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M7 11l3-3 2 2 4-4"/></svg>,
   record: <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="7"/></svg>,
   stop: <svg viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>,
-  phone: <svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 15.46l-5.27-.61-2.52 2.52a15.05 15.05 0 0 1-6.59-6.59l2.53-2.53L8.54 3H3.03C2.45 13.18 10.82 21.55 21 20.97v-5.51z"/></svg>,
+  phone: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M21.5 16.9v2.6a1.8 1.8 0 0 1-2 1.8 17.6 17.6 0 0 1-7.7-2.7 17.3 17.3 0 0 1-5.3-5.3A17.6 17.6 0 0 1 3.8 5.5a1.8 1.8 0 0 1 1.8-2h2.6a1.8 1.8 0 0 1 1.8 1.5c.1.9.3 1.7.6 2.5a1.8 1.8 0 0 1-.4 1.9l-1.1 1.1a14 14 0 0 0 5.3 5.3l1.1-1.1a1.8 1.8 0 0 1 1.9-.4c.8.3 1.6.5 2.5.6a1.8 1.8 0 0 1 1.6 1.9z"/></svg>,
   groups: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>,
   more: <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>,
-  eye: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
-  eyeOff: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>,
+  eye: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12s3-7 9-7 9 7 9 7-3 7-9 7-9-7-9-7z"/><circle cx="12" cy="12" r="3"/></svg>,
+  eyeOff: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M9.9 4.2A9.1 9.1 0 0 1 12 4c6 0 9 7 9 7a15 15 0 0 1-2.4 3.4M6.6 6.6A15 15 0 0 0 3 11s3 7 9 7a9 9 0 0 0 4.3-1.1"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><path d="M3 3l18 18"/></svg>,
   expand: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>,
-  copy: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>,
-  playTri: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"><path d="M7 5.5v13l11-6.5z"/></svg>,
-  qr: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3M21 14v7M17 21h4"/></svg>,
+  copy: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>,
+  voz: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg>,
+  vozOff: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></svg>,
+  repetir: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12a8 8 0 1 0 2.6-5.9"/><path d="M4 4.5v4.2h4.2"/></svg>,
+  historico: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>,
+  transcricao: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M4 6.5h16M4 11h16M4 15.5h10M4 20h6"/></svg>,
+  playTri: <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5 19 12 7 19.5z"/></svg>,
+  qr: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="3.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.6"/></svg>,
   gear: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>,
 };
 
@@ -158,18 +163,32 @@ export default function VideoRoom({ roomId, guestToken, speakerInviteId, display
   // nem falar com ninguém.
   const [boSeq, setBoSeq] = useState(0);
 
-  const enterBreakout = useCallback(async (group: { id: string; name: string; leader_name?: string }, endsAt: string | null) => {
+  const enterBreakout = useCallback(async (group: { id: string; name: string; leader_name?: string; leader_identity?: string | null }, endsAt: string | null) => {
     if (!identity) return;
     try {
-      const t = await sdk.breakouts.token(roomId, group.id, identity, displayName);
+      const t = group.id === SALA_DE_SUPORTE
+        ? await sdk.openpbl.suporteToken(roomId, identity, displayName)
+        : await sdk.breakouts.token(roomId, group.id, identity, displayName);
       swapAtRef.current = Date.now();
       setBoSeq((n) => n + 1);
-      setBreakout({ token: t.token, url: t.livekit_url, groupId: group.id, groupName: t.group_name, endsAt, leaderName: group.leader_name || "" });
+      setBreakout({ token: t.token, url: t.livekit_url, groupId: group.id, groupName: t.group_name, endsAt, leaderName: group.leader_name || "", leaderIdentity: group.leader_identity ?? null });
       setBoChoices(null);
     } catch (e) { console.error("breakout token", e); }
   }, [identity, roomId, displayName]);
 
   const leaveBreakout = useCallback(() => { swapAtRef.current = Date.now(); setBreakout(null); setBoChoices(null); }, []);
+
+  // A sala de suporte é decidida pelo servidor: quem conectou o pacote sai sozinho, e na
+  // divisão dos grupos quem não resolveu volta para a sala principal como ouvinte.
+  const breakoutAtual = useRef(breakout);
+  breakoutAtual.current = breakout;
+  const seguirOSuporte = useCallback(async (membros: OpenPblSuporteMembro[]) => {
+    const noSuporte = membros.some((m) => m.identity === identity && m.status === "suporte");
+    const estaLa = breakoutAtual.current?.groupId === SALA_DE_SUPORTE;
+    if (noSuporte && !estaLa) await enterBreakout({ id: SALA_DE_SUPORTE, name: "Sala de suporte" }, null);
+    if (!noSuporte && estaLa) leaveBreakout();
+    return noSuporte;
+  }, [identity, enterBreakout, leaveBreakout]);
 
   const handleDisconnected = useCallback(() => {
     // Dentro da janela do swap, QUALQUER desconexão é da troca de sala — não ejeta.
@@ -200,7 +219,8 @@ export default function VideoRoom({ roomId, guestToken, speakerInviteId, display
         if (mine) enterBreakout(mine, st.ends_at);
         else if (st.mode === "self") setBoChoices(st.groups);
       } else if (event === "breakout-close") {
-        leaveBreakout();
+        // Encerrar os grupos não tira ninguém da sala de suporte.
+        if (breakoutAtual.current?.groupId !== SALA_DE_SUPORTE) leaveBreakout();
       } else if (event === "breakout-message") {
         setBoMessage(payload?.text ? `${payload.from || "Anfitrião"}: ${payload.text}` : null);
       }
@@ -213,13 +233,17 @@ export default function VideoRoom({ roomId, guestToken, speakerInviteId, display
   const rejoinMyGroup = useCallback(async () => {
     if (!identity || isStaff) return;
     try {
+      const { membros } = await sdk.openpbl.suporte(roomId);
+      if (await seguirOSuporte(membros)) return;
+    } catch { /* sem o suporte, segue a resolução dos grupos */ }
+    try {
       const st = await sdk.breakouts.state(roomId);
       if (!st.open) { setBreakout(null); return; }   // grupos encerraram enquanto esteve fora
       const mine = st.groups.find((g) => g.members.some((m) => m.identity === identity));
       if (mine) await enterBreakout(mine, st.ends_at);   // token novo, não o antigo
       else if (st.mode === "self") setBoChoices(st.groups);
     } catch { /* sem estado de grupos: segue na sala principal */ }
-  }, [identity, isStaff, roomId, enterBreakout]);
+  }, [identity, isStaff, roomId, enterBreakout, seguirOSuporte]);
 
   // Resolve a sala-destino ANTES da primeira conexão. Antes conectávamos na principal e
   // só depois descobríamos o grupo — o aluno era movido ~5s após entrar, e cada
@@ -261,10 +285,11 @@ export default function VideoRoom({ roomId, guestToken, speakerInviteId, display
   // perdesse o evento durante um blip nunca entraria no grupo.
   useEffect(() => {
     if (isStaff || !identity) return;
-    return sdk.subscribe(roomId, (event) => {
+    return sdk.subscribe(roomId, (event, payload) => {
       if (event === "__reconnected" || event === "breakout-state") rejoinMyGroup();
+      else if (event === "suporte-state") seguirOSuporte(payload?.membros || []).catch(() => {});
     });
-  }, [roomId, identity, isStaff, rejoinMyGroup]);
+  }, [roomId, identity, isStaff, rejoinMyGroup, seguirOSuporte]);
 
   // Auto-some o aviso após alguns segundos.
   useEffect(() => {
@@ -323,7 +348,7 @@ export default function VideoRoom({ roomId, guestToken, speakerInviteId, display
   if (!boResolved) return <div className="vr-root"><div className="vr-center">Entrando…</div></div>;
 
   const boCtx: BreakoutCtx = {
-    active: breakout ? { groupId: breakout.groupId, groupName: breakout.groupName, endsAt: breakout.endsAt, leaderName: breakout.leaderName } : null,
+    active: breakout ? { groupId: breakout.groupId, groupName: breakout.groupName, endsAt: breakout.endsAt, leaderName: breakout.leaderName, leaderIdentity: breakout.leaderIdentity } : null,
     message: boMessage,
     identity: identity ?? undefined,
     displayName,
@@ -360,7 +385,7 @@ export default function VideoRoom({ roomId, guestToken, speakerInviteId, display
 }
 
 /* ---------------- Breakout: seletor (modo "os participantes escolhem") ------- */
-function BreakoutChooser({ groups, onPick }: { groups: BreakoutGroup[]; onPick: (g: { id: string; name: string; leader_name?: string }) => void }) {
+function BreakoutChooser({ groups, onPick }: { groups: BreakoutGroup[]; onPick: (g: { id: string; name: string; leader_name?: string; leader_identity?: string | null }) => void }) {
   return (
     <div className="vr-bo-chooser">
       <div className="vr-bo-chooser-card">
@@ -407,15 +432,14 @@ function BreakoutBanner({ groupName, leaderName, endsAt, message, onLeave }: { g
   return (
     <div className="vr-bo-banner">
       <span>
-        Você está no <b>{groupName}</b>
+        Você está {/^sala/i.test(groupName) ? "na" : "no"} <b>{groupName}</b>
         {/* Quem conduz o aquecimento. Só aparece quando há sorteio gravado:
             grupo vazio, ou servidor sem a migration 019, não afirmam líder. */}
-        {leaderName ? <> • líder: <b>{leaderName}</b></> : null}
+        {leaderName ? <> • <Coroa /> <b>{leaderName}</b></> : null}
         {mmss ? ` • volta em ${mmss}` : ""}
       </span>
       <div className="vr-bo-banner-right">
         {message && <span className="vr-bo-banner-note">{message}</span>}
-        <button className="vr-bo-banner-btn" onClick={onLeave}>Voltar à sala principal</button>
       </div>
     </div>
   );
@@ -444,7 +468,7 @@ function BreakoutHostBar({ roomId, active, message, onEnter, onLeave }: {
   roomId: string;
   active: { groupId: string; groupName: string; endsAt: string | null } | null;
   message: string | null;
-  onEnter: (g: { id: string; name: string }, endsAt: string | null) => void;
+  onEnter: (g: { id: string; name: string; leader_name?: string; leader_identity?: string | null }, endsAt: string | null) => void;
   onLeave: () => void;
 }) {
   const sdk = useSDK();
@@ -452,6 +476,16 @@ function BreakoutHostBar({ roomId, active, message, onEnter, onLeave }: {
   const [open, setOpen] = useState(false);
   const [endsAt, setEndsAt] = useState<string | null>(null);
   const [remain, setRemain] = useState<number | null>(null);
+  const [membrosDoSuporte, setMembrosDoSuporte] = useState<OpenPblSuporteMembro[]>([]);
+
+  useEffect(() => {
+    const carregar = () => sdk.openpbl.suporte(roomId).then((r) => setMembrosDoSuporte(r.membros)).catch(() => {});
+    carregar();
+    return sdk.subscribe(roomId, (e, p) => {
+      if (e === "suporte-state") setMembrosDoSuporte(p?.membros || []);
+      else if (e === "__reconnected") carregar();
+    });
+  }, [roomId]);
 
   useEffect(() => {
     const refresh = () => sdk.breakouts.state(roomId).then((s) => {
@@ -470,16 +504,31 @@ function BreakoutHostBar({ roomId, active, message, onEnter, onLeave }: {
     return () => clearInterval(id);
   }, [endsAt]);
 
-  if (!open) return message ? <div className="vr-bo-banner vr-bo-banner-msg">{message}</div> : null;
+  // O suporte acontece ANTES de os grupos abrirem: a barra precisa existir sem eles.
+  const noSuporte = membrosDoSuporte.filter((m) => m.status === "suporte");
+  const pediramAjuda = noSuporte.filter((m) => m.pediu_ajuda);
+  const visitandoSuporte = active?.groupId === SALA_DE_SUPORTE;
+  if (!open && !noSuporte.length && !visitandoSuporte) {
+    return message ? <div className="vr-bo-banner vr-bo-banner-msg">{message}</div> : null;
+  }
   const mmss = remain != null ? `${Math.floor(remain / 60)}:${String(remain % 60).padStart(2, "0")}` : null;
 
   return (
     <div className="vr-bo-hostbar">
       <span className="vr-bo-hostbar-label">Visitar:</span>
       <button className="vr-bo-chip" data-active={!active} onClick={onLeave}>Sala do facilitador</button>
-      {groups.map((g) => (
+      {(noSuporte.length > 0 || visitandoSuporte) && (
+        <button className="vr-bo-chip vr-bo-chip-suporte" data-active={visitandoSuporte}
+          data-ajuda={pediramAjuda.length > 0 || undefined}
+          title={noSuporte.map((m) => m.name).join(", ")}
+          onClick={() => onEnter({ id: SALA_DE_SUPORTE, name: "Sala de suporte" }, null)}>
+          {pediramAjuda.length > 0 ? `Suporte: ${pediramAjuda[0].name} pediu ajuda` : "Suporte"}
+          <span className="vr-bo-chip-n">{noSuporte.length}</span>
+        </button>
+      )}
+      {open && groups.map((g) => (
         <button key={g.id} className="vr-bo-chip" data-active={active?.groupId === g.id}
-          onClick={() => onEnter({ id: g.id, name: g.name }, endsAt)}>
+          onClick={() => onEnter({ id: g.id, name: g.name, leader_name: g.leader_name, leader_identity: g.leader_identity }, endsAt)}>
           {g.name}<span className="vr-bo-chip-n">{g.members.length}</span>
         </button>
       ))}
@@ -493,6 +542,16 @@ function BreakoutHostBar({ roomId, active, message, onEnter, onLeave }: {
  *  Sufixo de identidade das conexões de fan-out do host. São participantes só-áudio
  *  (sem câmera) que NÃO devem aparecer nas grades nem na contagem de participantes. */
 const BROADCAST_SUFFIX = "__bc";
+function Coroa() {
+  return (
+    <svg className="vr-coroa" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M3 7.5l4.6 4 4.4-7 4.4 7 4.6-4-1.8 10.5H4.8L3 7.5z" />
+      <rect x="4.8" y="19" width="14.4" height="2" rx="1" />
+    </svg>
+  );
+}
+/** O `groupId` da sala de suporte: ela não é um grupo do banco, mas se entra nela igual. */
+const SALA_DE_SUPORTE = "suporte";
 // Desconexões dentro desta janela após uma troca de sala pertencem à transição
 // (a sala antiga fecha, a nova conecta) — nunca são "o usuário saiu".
 const SWAP_WINDOW_MS = 10000;
@@ -600,7 +659,7 @@ function HostBroadcast({ roomId, identity, displayName }: { roomId: string; iden
  *  grupos estão abertos e ele não entrou em nenhum. */
 function HostBreakoutOverview({ roomId, onEnter }: {
   roomId: string;
-  onEnter: (g: { id: string; name: string }, endsAt: string | null) => void;
+  onEnter: (g: { id: string; name: string; leader_name?: string; leader_identity?: string | null }, endsAt: string | null) => void;
 }) {
   const sdk = useSDK();
   const { isMicrophoneEnabled } = useLocalParticipant();
@@ -629,7 +688,8 @@ function HostBreakoutOverview({ roomId, onEnter }: {
           <div className="vr-fac-card" key={g.id}>
             <div className="vr-fac-card-name">{g.name}</div>
             <div className="vr-fac-card-n">{g.members.length} {g.members.length === 1 ? "aluno" : "alunos"}</div>
-            <button className="vr-fac-enter" onClick={() => onEnter({ id: g.id, name: g.name }, endsAt)}>Entrar e lecionar</button>
+            {g.leader_name && <div className="vr-fac-card-lider" title="Líder do grupo"><Coroa />{g.leader_name}</div>}
+            <button className="vr-fac-enter" onClick={() => onEnter({ id: g.id, name: g.name, leader_name: g.leader_name, leader_identity: g.leader_identity }, endsAt)}>Entrar e lecionar</button>
           </div>
         ))}
       </div>
@@ -702,6 +762,7 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
   const [panel, setPanel] = useState<"chat" | "people" | "breakout" | "scorm" | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);   // Configurações = modal central
   const [confirmEnd, setConfirmEnd] = useState(false);
+  const [confirmaModo, setConfirmaModo] = useState(false);
   const [scorm, setScorm] = useState(false);
   const [pblRoster, setPblRoster] = useState<any | null>(null);   // status dos alunos (OpenPBL)
   // Histórico das comunicações do facilitador + se o painel está aberto. Nasce
@@ -714,7 +775,6 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
   // devolve 403 para o aluno), e também nasce fechada.
   const [transcricao, setTranscricao] = useState<FalaTranscrita[]>([]);
   const [transcricaoAberta, setTranscricaoAberta] = useState(false);
-  const [plenaryQ, setPlenaryQ] = useState<{ list: string[]; total: number } | null>(null); // questões da plenária reveladas até agora (recebidas pelo aluno via dados)
   const [clock, setClock] = useState("");   // horário (HH:MM) mostrado ao lado do class-code no header do facilitador
   const [showBoard, setShowBoard] = useState(false);
   const [recording, setRecording] = useState(false);
@@ -996,10 +1056,13 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
   const zeradoRef = useRef(false);
   useEffect(() => {
     if (pblStage !== "show_chart") { zeradoRef.current = false; return; }
+    // No automático não há quem habilite as séries: zerar deixaria o radar vazio até o fim
+    // da etapa, para o facilitador e, pelo filtro transmitido, para a turma inteira.
+    if (pblClass?.auto_mode !== false) { setChartFilter((f) => (f.length ? [] : f)); return; }
     if (recorder || zeradoRef.current || !chartSeries.length) return;
     zeradoRef.current = true;
     setChartFilter(chartSeries);
-  }, [pblStage, chartSeries]);
+  }, [pblStage, chartSeries, pblClass?.auto_mode]);
   const [stageBusy, setStageBusy] = useState(false);
   // Cards já revelados na etapa atual. Vale para toda cascata que aparece um a um
   // (sinopse, questões orientadoras e questões da plenária).
@@ -1054,8 +1117,6 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
   // (LiveKit data). Para o aluno o popup ainda abre sozinho ao entrar no registro.
   const classCode: string | null = pblRoster?.code ?? null;
   const codeHiddenForStudents = !!pblRoster?.code_hidden;
-  const registrationOpen = pblClass?.checking_open !== false;
-  const studentCanSeeCode = registrationOpen && !codeHiddenForStudents;
   const [codeExpand, setCodeExpand] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
 
@@ -1094,17 +1155,6 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
       try {
         const m = JSON.parse(new TextDecoder().decode(payload));
         if (m?.source === "webconf" && m?.type === "code-expand") setCodeExpand(!!m.expanded);
-        // Aluno recebe as questões reveladas da plenária por dados (sem screen-share).
-        // Lista vazia = limpar (fora da etapa). Dedupe: o heartbeat reenvia a cada 3s.
-        if (m?.source === "webconf" && m?.type === "plenary-questions") {
-          const list: string[] = Array.isArray(m.list) ? m.list.map(String) : [];
-          const total = m.total || list.length;
-          setPlenaryQ((prev) => {
-            if (!list.length) return prev ? null : prev;
-            if (prev && prev.total === total && prev.list.join("") === list.join("")) return prev;
-            return { list, total };
-          });
-        }
         // Quantos cards da etapa atual o facilitador já revelou (dedupe: reenviado a cada 3s).
         if (m?.source === "webconf" && m?.type === "stage-reveal" && typeof m.count === "number") {
           const next = { stage: String(m.stage || ""), count: Math.max(1, m.count) };
@@ -1124,6 +1174,12 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
 
   // Estado global dos grupos (breakout aberto?) — p/ as etapas Abrir/Encerrar grupos.
   const [breakoutOpen, setBreakoutOpen] = useState(false);
+  // Quem volta de um grupo acabou de trocar de conexão: relê a etapa em vez de esperar o polling.
+  const grupoAberto = useRef(false);
+  useEffect(() => {
+    if (grupoAberto.current && !breakoutOpen) sdk.openpbl.classState(roomId).then(setPblClass).catch(() => {});
+    grupoAberto.current = breakoutOpen;
+  }, [breakoutOpen, roomId, sdk]);
   useEffect(() => {
     if (!scorm) return;
     const load = () => sdk.breakouts.state(roomId).then((s) => setBreakoutOpen(!!s.open)).catch(() => {});
@@ -1137,7 +1193,19 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
   }, [scorm, roomId]);
 
   // Toda troca de etapa recomeça a revelação do zero.
-  useEffect(() => { setReveal(0); }, [pblStage]);
+  // Etapa nova começa no 1º cartão. Voltando, entra com todos revelados: quem voltou por
+  // um clique acidental retoma de onde estava, sem recomeçar a cascata.
+  const voltandoRef = useRef(false);
+  useEffect(() => {
+    setReveal(voltandoRef.current ? Math.max(0, revealItems.length - 1) : 0);
+    voltandoRef.current = false;
+  }, [pblStage]);
+  // Nas perguntas da plenária o cursor mora no servidor: o líder também avança, e no
+  // automático não há navegador de quem conduz para guardá-lo.
+  const questaoAtual = pblClass?.questao_atual ?? 0;
+  useEffect(() => {
+    if (pblStage === "question") setReveal(questaoAtual);
+  }, [pblStage, questaoAtual]);
 
   // A etapa "Ampliar o código da sessão" É isto: o class code grande na tela,
   // para quem chegou atrasado entrar antes de o registro fechar.
@@ -1152,34 +1220,48 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
     return () => setCodeExpand(false);
   }, [pblStage]);
 
+  // A etapa muda NA HORA na tela de quem conduz; o servidor confirma depois. Se recusar,
+  // a tela volta para onde estava.
   const goToStep = async (id: OpenPblStage) => {
-    try { setPblClass(await sdk.openpbl.setStage(roomId, id)); } catch { /* */ }
+    const anterior = pblClass;
+    setPblClass((c: any) => (c ? {
+      ...c, stage: id, vote_ends_at: null, vote_stage: null,
+      ...(id === "question" && pblStage === "plenary" ? { questao_atual: 0 } : {}),
+    } : c));
+    try {
+      setPblClass(await sdk.openpbl.setStage(roomId, id));
+    } catch {
+      setPblClass(anterior);
+    }
   };
 
   // Total de questões da plenária: quantas o roteiro do episódio trouxer (o padrão
   // vale só para salas sem roteiro).
   const plenaryTotal = roteiroQuestions.length || PLENARY_QUESTIONS;
 
+  // As questões orientadoras só aparecem para quem está DENTRO de um grupo: aluno ou
+  // facilitador visitando. Na sala principal e na sala do facilitador, só as instruções.
+  const emSuporte = breakout.active?.groupId === SALA_DE_SUPORTE;
+  const orientadorasVisiveis = !!breakout.active && !emSuporte;
+
   // Cards da etapa atual que aparecem um a um — com a voz de cada um junto, para
   // a sala LER o card no momento em que ele aparece.
   const revealPares = useMemo(
     () => (pblStage === "synopsis" ? paresSinopse
-      : pblStage === "groups" ? paresOrientadoras
+      : pblStage === "groups" ? (orientadorasVisiveis ? paresOrientadoras : [])
         : pblStage === "plenary" ? paresRelembrando
           : pblStage === "question" ? paresQuestions
             : pblStage === "situational" ? paresSituacional
               : []),
-    [pblStage, paresSinopse, paresOrientadoras, paresRelembrando, paresQuestions,
+    [pblStage, orientadorasVisiveis, paresSinopse, paresOrientadoras, paresRelembrando, paresQuestions,
      paresSituacional],
   );
   const revealItems = useMemo(() => revealPares.map((p) => p.texto), [revealPares]);
   // Quem conduz usa o próprio contador; os demais seguem o que ele transmite.
-  const shownCount = amController
+  const shownCount = (pblStage === "groups" && orientadorasVisiveis) ? revealItems.length
+    : pblStage === "question" ? questaoAtual + 1
+    : amController
     ? reveal + 1
-    // Com os grupos abertos as 3 questões já foram todas reveladas (é o que libera a
-    // divisão). Dentro da sub-sala o aluno pode não receber o aviso do controlador,
-    // então essa condição garante que ele veja o material completo da discussão.
-    : (pblStage === "groups" && breakoutOpen) ? revealItems.length
       : (remoteReveal?.stage === pblStage ? remoteReveal.count : 1);
 
   // ── A VOZ do encontro ──
@@ -1194,7 +1276,9 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
   // sem parar — numa sala de vídeo são muitos renders por segundo.
   const vozFixaDaEtapa = useMemo(() => audiosDaEtapa(roteiro, pblStage), [roteiro, pblStage]);
   const chaveDosFixos = vozFixaDaEtapa.join("\n");
-  const chaveDosCards = revealPares.map((p) => p.voz).join("\n");
+  // Com os grupos abertos a sala não lê as questões: falaria por cima da conversa.
+  const chaveDosCards = (pblStage === "groups" && breakoutOpen)
+    ? "" : revealPares.map((p) => p.voz).join("\n");
   const [filaDaVoz, setFilaDaVoz] = useState<string[]>([]);
   const jaFalado = useRef<{ stage: string; ate: number; fixos: string }>(
     { stage: "", ate: 0, fixos: "" });
@@ -1252,7 +1336,7 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
   // repetiria um "Liberar…" que já aconteceu.
   const anunciaProxima = pblStage === "closing"
     || pblStage === "release_risks" || pblStage === "release_feedback";
-  const seqLabel = pblStage === "groups" && breakoutOpen
+  const seqLabel = breakoutOpen
     ? "Encerrar os grupos"
     : faltaRevelar
       ? `${curStep.action} (${reveal + 1}/${revealItems.length})`
@@ -1262,16 +1346,9 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
         ? proxima.action
         : curStep.action;
 
-  // Class-code só é liberado (mostrado ao facilitador) DEPOIS de clicar em "Iniciar o
-  // registro" — ou seja, da etapa SEGUINTE em diante, com o registro já aberto.
-  //
-  // Essa etapa seguinte é `amplify_code`, não `registration_close`: a etapa de
-  // ampliar o código entrou entre as duas, e com a âncora antiga o facilitador
-  // ficava sem o chip do código justamente na etapa que existe para mostrá-lo.
-  const codeReleased = !!classCode && stepIndex(pblStage) >= stepIndex("amplify_code");
-  // Código no header (esquerda): facilitador após iniciar o registro; aluno enquanto o
-  // registro está aberto e não oculto. O header do aluno espelha o do facilitador.
-  const showBrandCode = !!classCode && (amStaff ? codeReleased : studentCanSeeCode);
+  // O class-code fica visível no header durante toda a sessão, para todos. A única
+  // exceção é o olho do facilitador, que oculta o código só para os alunos.
+  const showBrandCode = !!classCode && (amStaff || !codeHiddenForStudents);
 
   // Relógio (HH:MM) no header do facilitador, ao lado do class-code. Atualiza a cada 20s.
   useEffect(() => {
@@ -1287,29 +1364,17 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
   // Questões REVELADAS até agora (cascata): do roteiro do episódio, da 1ª até a atual.
   const revealedQuestions = pblStage === "question" ? roteiroQuestions.slice(0, Math.max(1, shownCount)) : [];
 
-  // O controlador transmite as questões já reveladas: o aluno renderiza a MESMA cascata.
-  // Reenvia a cada 3s enquanto na etapa, para quem entrar depois. Fora da etapa, envia
-  // lista vazia (limpa no aluno).
+  // A gravação começa na 2ª pergunta exibida, como antes, venha o avanço de quem vier:
+  // agora o líder também avança. Uma vez só: quem parou a gravação de propósito não a vê
+  // religar. No automático não há quem conduza a gravação, e nada muda.
+  const gravacaoIniciada = useRef(false);
   useEffect(() => {
-    if (recorder || !amController || !room) return;   // gravador só espelha; controlador transmite
-    const inQ = pblStage === "question";
-    const send = () => {
-      // Só transmite com a conexão LiveKit pronta — senão publishData rejeita com
-      // "PC manager is closed" (durante reconexão) e polui o console de erros.
-      if (room.state !== ConnectionState.Connected) return;
-      try {
-        const list = inQ ? roteiroQuestions.slice(0, reveal + 1) : [];
-        const data = new TextEncoder().encode(JSON.stringify({
-          source: "webconf", type: "plenary-questions", list, total: plenaryTotal,
-        }));
-        room.localParticipant?.publishData(data, { reliable: true })?.catch(() => {});
-      } catch { /* */ }
-    };
-    send();
-    if (!inQ) return;
-    const id = setInterval(send, 3000);
-    return () => clearInterval(id);
-  }, [amController, room, pblStage, reveal, roteiroQuestions, plenaryTotal]);
+    if (pblStage !== "question" || (pblClass?.questao_atual ?? 0) < 1) return;
+    if (gravacaoIniciada.current || recording || !amController || recorder || pblClass?.auto_mode !== false) return;
+    gravacaoIniciada.current = true;
+    setRecording(true);
+    sdk.recording.start(roomId).catch(() => setRecording(false));
+  }, [pblStage, pblClass?.questao_atual, pblClass?.auto_mode, amController, recorder, recording, roomId]);
 
   // Progresso da revelação: o controlador transmite quantos cards já apareceram, para
   // aluno e moderador verem exatamente a mesma tela. Reenvia a cada 3s (quem entra no
@@ -1352,7 +1417,36 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
   // Botão sequencial: executa a AÇÃO da etapa atual e avança para a próxima.
   // O conteúdo de cada etapa (sinopse, questões, riscos) vem do ROTEIRO do episódio e
   // é renderizado aqui mesmo — não há mais pacote externo para avançar em paralelo.
+  const encerrarGrupos = async () => {
+    setStageBusy(true);
+    setBreakoutOpen(false);
+    try {
+      // A etapa muda ANTES de fechar: enquanto volta do grupo, o aluno está trocando de
+      // conexão e perderia o aviso, ficando na etapa antiga até o próximo polling.
+      if (pblStage === "groups") await goToStep("plenary");
+      await sdk.breakouts.close(roomId);
+    } catch {
+      setBreakoutOpen(true);   // o servidor recusou: os grupos continuam abertos
+    } finally {
+      setStageBusy(false);
+    }
+  };
+
+  const mudarDeQuestao = async (delta: number) => {
+    const anterior = pblClass;
+    const alvo = questaoAtual + delta;
+    if (alvo >= 0 && alvo < plenaryTotal) setPblClass((c: any) => (c ? { ...c, questao_atual: alvo } : c));
+    try {
+      setPblClass(await sdk.openpbl.mudarQuestao(roomId, delta));
+    } catch {
+      setPblClass(anterior);
+    }
+  };
+
   const runStep = async () => {
+    // Com grupos abertos, este botão é "Encerrar grupos", seja qual for a etapa: o
+    // facilitador nunca pode ficar sem como trazer a turma de volta.
+    if (breakoutOpen) { await encerrarGrupos(); return; }
     setStageBusy(true);
     const id = pblStage;
     const idx = stepIndex(id);
@@ -1387,38 +1481,25 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
           await goToStep(next);
           break;
         case "groups":
-          // As questões orientadoras aparecem uma a uma ANTES de dividir os grupos —
-          // é com elas em tela que a turma vai discutir nas salas.
-          if (reveal + 1 < roteiroOrientadoras.length) { setReveal(reveal + 1); break; }
           if (!breakoutOpen) {
-            // Divide os grupos (API OpenPBL) e abre as salas com contagem de 10 min.
+            // Fecha o suporte, divide os grupos e abre as salas com contagem de 10 min.
             // NÃO avança de etapa: durante a discussão a tela continua sendo a do
             // Aquecimento — antes o cursor pulava para a plenária e os alunos viam,
             // dentro do grupo, um conteúdo que só deveria aparecer depois.
-            await sdk.openpbl.syncGroups(roomId).catch(() => {});
-            await sdk.breakouts.open(roomId, 600).catch(() => {});
+            await sdk.openpbl.dividirGrupos(roomId, 600).catch(() => {});
             break;
           }
-          // Grupos abertos: encerra as salas e só então segue para a plenária.
-          await sdk.breakouts.close(roomId).catch(() => {});
-          await goToStep(next);
           break;
         case "plenary":
           // Todos voltam à sala principal para a discussão em plenária.
           if (breakoutOpen) await sdk.breakouts.close(roomId).catch(() => {});
           await goToStep(next);
           break;
-        case "question": {
-          // Plenária: cada clique revela mais uma questão do roteiro (cascata), e a lista
-          // revelada é transmitida por dados para os alunos verem a mesma tela.
-          // 1ª questão: inicia a gravação em BACKGROUND (o egress pode demorar a responder;
-          // NÃO pode bloquear o avanço do sequenciador — era isso que travava o botão).
-          if (reveal === 0 && !recording) { setRecording(true); sdk.recording.start(roomId).catch(() => setRecording(false)); }
-          const n = reveal + 1;
-          setReveal(n);
-          if (n >= plenaryTotal) await goToStep("situational");
+        case "question":
+          // Cada clique revela mais uma questão; depois da última, o servidor segue para
+          // a análise situacional.
+          await mudarDeQuestao(1);
           break;
-        }
         case "situational":
           // Os riscos aparecem um a um; revelado o último, o clique JÁ libera o
           // questionário e entra na etapa. Antes a liberação só acontecia ao SAIR
@@ -1455,135 +1536,109 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
     } finally { setStageBusy(false); }
   };
 
-  return (
-    <>
-      <header className="vr-header">
-        <div className="vr-brand">
-          {brand?.logo_url
-            ? <img className="vr-logo vr-logo-img" src={brand.logo_url} alt="" />
-            : <div className="vr-logo">V</div>}
-          {/* Na aula OpenPBL (facilitador OU aluno): em vez do nome da sala, mostra o
-              horário e o class-code (mesmo header para todos). O olho de ocultar o
-              código é exclusivo do host/moderador; o código em si respeita a
-              visibilidade de cada papel (showBrandCode). */}
-          {pblActive ? (
-            <div className="vr-brandmeta">
-              <span className="vr-clock">{clock}</span>
-              {showBrandCode && (
-                <>
-                  <span className="vr-brandmeta-sep">|</span>
-                  {/* Class-code como TEXTO puro (mesma fonte do relógio) — clicável
-                      (copia + amplia) com o ícone ao lado. */}
-                  <button type="button" className="vr-code-plain" onClick={onCodeChipClick} title="Clique para copiar e ampliar o código">
-                    <span className="vr-clock">{codeCopied ? "Copiado!" : classCode}</span>
-                    <span className="vr-code-plain-ico" aria-hidden>{I.copy}</span>
-                  </button>
-                  {amStaff && (
-                    <button
-                      type="button" className="vr-code-plain-eye" onClick={toggleCodeForStudents}
-                      title={codeHiddenForStudents ? "Mostrar o código para os alunos" : "Ocultar o código para os alunos"}
-                    >
-                      {codeHiddenForStudents ? I.eyeOff : I.eye}
-                    </button>
-                  )}
-                </>
-              )}
-            </div>
-          ) : (
-            <div className="vr-title">{roomTitle || pubTitle || brand?.product_name || "Sala de vídeo"}</div>
-          )}
-        </div>
+  // A tela muda NA HORA: o clique não espera o servidor responder. Se ele recusar, volta
+  // ao estado anterior; o que o servidor devolve (com o relógio novo) substitui este.
+  const trocarModo = async () => {
+    const anterior = pblClass;
+    const auto = pblClass?.auto_mode === false;
+    setConfirmaModo(false);
+    setPblClass((c: any) => (c ? { ...c, auto_mode: auto, vote_ends_at: null, vote_stage: null } : c));
+    try {
+      setPblClass(await sdk.openpbl.setCadencia(roomId, auto));
+    } catch {
+      setPblClass(anterior);
+    }
+  };
 
-        {/* Centro: SOMENTE a atividade atual — IGUAL para facilitador e aluno (o
-            class-code foi para a esquerda; o ▶ é só do controlador, na direita). */}
-        {pblActive && (
-          <ActivityBar
-            stage={pblStage}
-            head={curStep.head}
-            /* A CHAVE DA AUTOMAÇÃO, à esquerda do título. Automático é o
-               padrão; este botão é o freio de mão -- o host assume quando a
-               cadência vai mal, sem precisar de deploy. Vive aqui, e não no
-               canto superior direito, porque o que ela governa é a ETAPA: ao
-               lado dos controles de microfone e câmera ela parecia mais um
-               controle da chamada. Só o controlador, como o resto do
-               sequenciador. */
-            antes={pblHost && (amController || recorder) ? (
+  // Desfaz um avanço acidental. Só move o cursor: o que a etapa já fez lá fora (encerrar o
+  // registro, liberar um questionário, parar a gravação) continua feito.
+  const etapaAnterior = STEP_IDS[stepIndex(pblStage) - 1] as OpenPblStage | undefined;
+  const voltarUmPasso = async () => {
+    if (pblStage === "question" && reveal > 0) { await mudarDeQuestao(-1); return; }
+    if (reveal > 0) { setReveal(reveal - 1); return; }
+    if (!etapaAnterior) return;
+    setStageBusy(true);
+    voltandoRef.current = true;
+    try { await goToStep(etapaAnterior); } finally { setStageBusy(false); }
+  };
+  const destinoDoVoltar = reveal > 0
+    ? "Voltar o último cartão"
+    : "Voltar para: " + (etapaAnterior ? stepDef(etapaAnterior).action : "");
+
+  // A coluna fica durante toda a aula, inclusive nos grupos: é nela que moram os comandos.
+  const colunaDaAula = pblActive;
+  const dirigeAAula = pblHost && (amController || recorder);
+  // Em automático quem avança é a cadência: o play só existe no modo manual. A exceção é
+  // a última etapa: a cadência para nela, e o botão é o único jeito de encerrar a sala.
+  const podeAvancar = dirigeAAula && (pblClass?.auto_mode === false || pblStage === "done" || breakoutOpen);
+  const podeVoltar = dirigeAAula && pblClass?.auto_mode === false && !breakoutOpen && (reveal > 0 || !!etapaAnterior);
+  const qtdQuestoes = revealedQuestions.length;
+  const totalQuestoes = plenaryTotal;
+  const minhaEntrada = (pblRoster?.students || []).find((s: any) => s.identity === identity);
+  const souOuvinte = minhaEntrada?.suporte === "ouvinte";
+  const nomeDe = (id?: string | null) =>
+    (pblRoster?.students || []).find((s: any) => s.identity === id)?.name || "Colega";
+
+  // No automático quem conduz é a cadência: o facilitador acompanha sem aparecer, com câmera
+  // e microfone desligados. Ao entrar no suporte ou num grupo ele reaparece, porque foi
+  // intervir. Voltando ao manual, religa o que foi desligado aqui.
+  const escondeu = useRef({ cam: false, mic: false });
+  const visitando = !!breakout.active;
+  const autoMode = pblClass?.auto_mode;
+  useEffect(() => {
+    if (!room || !amStaff || recorder || !pblActive) return;
+    const aplicar = () => {
+      const lp = room.localParticipant;
+      if (autoMode === true && !visitando) {
+        if (lp.isCameraEnabled) { escondeu.current.cam = true; lp.setCameraEnabled(false).catch(() => {}); }
+        if (lp.isMicrophoneEnabled) { escondeu.current.mic = true; lp.setMicrophoneEnabled(false).catch(() => {}); }
+      } else if (autoMode === false) {
+        if (escondeu.current.cam) { escondeu.current.cam = false; lp.setCameraEnabled(true).catch(() => {}); }
+        if (escondeu.current.mic) { escondeu.current.mic = false; lp.setMicrophoneEnabled(true).catch(() => {}); }
+      }
+    };
+    aplicar();
+    // A câmera costuma publicar depois de conectar, quando este efeito já rodou.
+    room.on(RoomEvent.LocalTrackPublished, aplicar);
+    return () => { room.off(RoomEvent.LocalTrackPublished, aplicar); };
+  }, [room, amStaff, recorder, pblActive, autoMode, visitando]);
+  const briefRotulo = showQuestionsArea
+    ? `Questões para reflexão (${qtdQuestoes}/${totalQuestoes})`
+    : showDimensions
+      ? `${curStep.head} (${Math.min(shownCount, situationalItems.length)}/${situationalItems.length})`
+      : curStep.head;
+  const briefTexto = breakoutOpen
+    ? (amStaff ? "Os grupos estão discutindo. Ao encerrar, todos voltam para a sala principal." : "")
+    : showQuestionsArea
+    ? rIntroQuestoes(roteiro).flatMap((b) => b.paragrafos).join(" ")
+    : podeAvancar ? `Próxima ação: ${seqLabel}` : "";
+
+  // As ações da aula moram no cartão da coluna. Durante os grupos a coluna some para o
+  // facilitador, e elas voltam ao topo, como o play.
+  const acoesDaAula = (
+    <>
+        {/* A CHAVE DA AUTOMAÇÃO. Automático é o padrão; este botão é o freio de mão:
+            o host assume quando a cadência vai mal. Fica aqui, discreta, e não ao
+            lado do título: o título da etapa fica sozinho e centrado. Só o
+            controlador, como o resto do sequenciador. */}
+        {pblActive && pblHost && (amController || recorder) && (
               <button
                 className="vr-actbar-ghost"
                 data-auto={pblClass?.auto_mode !== false || undefined}
                 title={pblClass?.auto_mode !== false
                   ? "A sala está avançando sozinha. Clique para assumir o controle."
                   : "Você está conduzindo. Clique para devolver à condução automática."}
-                onClick={async () => {
-                  try {
-                    setPblClass(await sdk.openpbl.setCadencia(
-                      roomId, pblClass?.auto_mode === false));
-                  } catch { /* o estado volta no próximo polling */ }
-                }}
+                aria-haspopup="dialog"
+                onClick={() => setConfirmaModo(true)}
               >
                 {pblClass?.auto_mode !== false ? "Automático" : "Manual"}
               </button>
-            ) : null}
-          />
-        )}
-
-        {/* TUDO QUE É ESTADO DA AULA VIVE NESTA CAIXA, e a caixa existe por um
-            motivo estrutural, não estético.
-
-            O `.vr-actbar` era `position: absolute` centrado no header: ele não
-            ocupa espaço no fluxo, então TODO irmão de fluxo ficava embaixo
-            dele. Em 04/11/2026 o cronômetro novo apareceu escrito por cima de
-            "Abertura" — e o mesmo valia, em silêncio, para o progresso, os
-            avisos, o histórico e o cartão de voto.
-
-            Agora o header é uma grade de três colunas e nada é absoluto:
-            marca | atividade | este bloco + controles. Sobreposição deixa de
-            ser uma questão de acertar margem e passa a ser impossível. */}
-        <div className="vr-header-end">
-        <div className="vr-header-status">
-
-        {/* PROGRESSO: só nas etapas em que a turma está respondendo algo. Fora
-            delas o número não significa nada e só ocuparia a tela. */}
-        {pblActive && pblStage === "release_risks" && (
-          <ProgressoDasRespostas
-            feitos={pblRoster?.progresso?.riscos ?? 0}
-            total={pblRoster?.progresso?.alunos ?? 0}
-            oque="responderam os riscos"
-          />
-        )}
-        {pblActive && pblStage === "release_feedback" && (
-          <ProgressoDasRespostas
-            feitos={pblRoster?.progresso?.pares ?? 0}
-            total={pblRoster?.progresso?.alunos ?? 0}
-            oque="avaliaram os colegas"
-          />
-        )}
-
-        {/* A AULA NAO COMECOU, e o host precisa saber POR QUE. So para quem
-            dirige: o aluno nao tem o que fazer com isso. */}
-        {isStaff && falhaDaAula && (
-          <span className="vr-falha-aula" title={falhaDaAula}>
-            ⚠ A aula não iniciou: {falhaDaAula}
-          </span>
-        )}
-
-        {/* ETAPA QUE O FRONTEND NÃO CONHECE. Só o host vê: para o aluno não há
-            ação possível, e a tela já desenha a abertura. Para o host é o aviso
-            de que a sala NÃO vai andar sozinha — etapa fora do vocabulário não
-            tem duração, logo não tem relógio nem avanço, e o modo manual é a
-            saída até o schema ser corrigido. */}
-        {isStaff && etapaDesconhecida && (
-          <span className="vr-falha-aula"
-                title={`O banco respondeu "${etapaDesconhecida}", que não está na cadência. `
-                       + `A sala não avança sozinha; use o modo manual.`}>
-            ⚠ Etapa desconhecida: {etapaDesconhecida} — sem avanço automático
-          </span>
         )}
 
         {/* O RELÓGIO DA ETAPA, ao lado da atividade: é o que torna a cadência
             visível antes de ela perguntar. Sem ele, "parada" e "contando" têm
             a mesma aparência. */}
-        {pblActive && (
+        {pblActive && !colunaDaAula && (
           <RelogioDaEtapa
             fimEm={pblClass?.stage_ends_at}
             auto={!!pblClass?.auto_mode}
@@ -1624,6 +1679,110 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
           />
         )}
 
+          {pblHost && chartAvailable && (
+            <button className="vr-actbar-ghost" onClick={() => setChartHidden((h) => !h)} title="Mostrar/ocultar o gráfico de riscos">
+              {chartHidden ? "Mostrar gráfico" : "Ocultar gráfico"}
+            </button>
+          )}
+          {/* Só o CONTROLADOR dirige o sequenciador. Outros host/moderadores veem
+              "Assumir controle" (evita dois apresentando ao mesmo tempo). */}
+          {pblHost && !amController && !recorder && (
+            <button className="vr-seq-label" title="Assumir o controle da apresentação/sequenciador"
+              onClick={() => identity && setRole({ set_controller: true, controller: identity })}>
+              Assumir controle
+            </button>
+          )}
+    </>
+  );
+
+  return (
+    <>
+      <header className="vr-header">
+        <div className="vr-brand">
+          {brand?.logo_url
+            ? <img className="vr-logo vr-logo-img" src={brand.logo_url} alt="" />
+            : pblActive
+              ? <span className="vr-wordmark">openpbl.ai</span>
+              : <div className="vr-logo">V</div>}
+          {/* Na aula OpenPBL (facilitador OU aluno): em vez do nome da sala, mostra o
+              horário e o class-code (mesmo header para todos). O olho de ocultar o
+              código é exclusivo do host/moderador; o código em si respeita a
+              visibilidade de cada papel (showBrandCode). */}
+          {pblActive ? (
+            <div className="vr-brandmeta">
+              <span className="vr-clock">{clock}</span>
+              {showBrandCode && (
+                <>
+                  <span className="vr-brandmeta-sep">|</span>
+                  {/* Class-code como TEXTO puro (mesma fonte do relógio) — clicável
+                      (copia + amplia) com o ícone ao lado. */}
+                  <button type="button" className="vr-code-plain" onClick={onCodeChipClick} title="Clique para copiar e ampliar o código">
+                    <span className="vr-code-val">{codeCopied ? "Copiado!" : classCode}</span>
+                    <span className="vr-code-plain-ico" aria-hidden>{I.copy}</span>
+                  </button>
+                  {amStaff && (
+                    <button
+                      type="button" className="vr-code-plain-eye" onClick={toggleCodeForStudents}
+                      title={codeHiddenForStudents ? "Mostrar o código para os alunos" : "Ocultar o código para os alunos"}
+                    >
+                      {codeHiddenForStudents ? I.eyeOff : I.eye}
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          ) : (
+            <div className="vr-title">{roomTitle || pubTitle || brand?.product_name || "Sala de vídeo"}</div>
+          )}
+        </div>
+
+        {/* Centro: SOMENTE a atividade atual — IGUAL para facilitador e aluno (o
+            class-code foi para a esquerda; o ▶ é só do controlador, na direita). */}
+        {pblActive && (
+          <ActivityBar
+            stage={pblStage}
+            head={curStep.head}
+          />
+        )}
+
+        {/* TUDO QUE É ESTADO DA AULA VIVE NESTA CAIXA, e a caixa existe por um
+            motivo estrutural, não estético.
+
+            O `.vr-actbar` era `position: absolute` centrado no header: ele não
+            ocupa espaço no fluxo, então TODO irmão de fluxo ficava embaixo
+            dele. Em 04/11/2026 o cronômetro novo apareceu escrito por cima de
+            "Abertura" — e o mesmo valia, em silêncio, para o progresso, os
+            avisos, o histórico e o cartão de voto.
+
+            Agora o header é uma grade de três colunas e nada é absoluto:
+            marca | atividade | este bloco + controles. Sobreposição deixa de
+            ser uma questão de acertar margem e passa a ser impossível. */}
+        <div className="vr-header-end">
+        <div className="vr-header-status">
+
+        {!colunaDaAula && acoesDaAula}
+
+        {/* A AULA NAO COMECOU, e o host precisa saber POR QUE. So para quem
+            dirige: o aluno nao tem o que fazer com isso. */}
+        {isStaff && falhaDaAula && (
+          <span className="vr-falha-aula" title={falhaDaAula}>
+            ⚠ A aula não iniciou: {falhaDaAula}
+          </span>
+        )}
+
+        {/* ETAPA QUE O FRONTEND NÃO CONHECE. Só o host vê: para o aluno não há
+            ação possível, e a tela já desenha a abertura. Para o host é o aviso
+            de que a sala NÃO vai andar sozinha — etapa fora do vocabulário não
+            tem duração, logo não tem relógio nem avanço, e o modo manual é a
+            saída até o schema ser corrigido. */}
+        {isStaff && etapaDesconhecida && (
+          <span className="vr-falha-aula"
+                title={`O banco respondeu "${etapaDesconhecida}", que não está na cadência. `
+                       + `A sala não avança sozinha; use o modo manual.`}>
+            ⚠ Etapa desconhecida: {etapaDesconhecida} — sem avanço automático
+          </span>
+        )}
+
         {/* A PERGUNTA DA CADÊNCIA, para a sala inteira. Fica fora do bloco do
             host: quem vota é a turma, e o host vê o mesmo cartão para saber o
             que está sendo perguntado (ele não vota -- tem o botão).
@@ -1649,20 +1808,7 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
         <div className="vr-header-right">
           {/* Sequenciador do facilitador (Encerrar Registro / ▶ / etc.) + toggle do
               gráfico — movidos do centro para a direita, junto dos controles. */}
-          {pblHost && chartAvailable && (
-            <button className="vr-actbar-ghost" onClick={() => setChartHidden((h) => !h)} title="Mostrar/ocultar o gráfico de riscos">
-              {chartHidden ? "Mostrar gráfico" : "Ocultar gráfico"}
-            </button>
-          )}
-          {/* Só o CONTROLADOR dirige o sequenciador. Outros host/moderadores veem
-              "Assumir controle" (evita dois apresentando ao mesmo tempo). */}
-          {pblHost && !amController && !recorder && (
-            <button className="vr-seq-label" title="Assumir o controle da apresentação/sequenciador"
-              onClick={() => identity && setRole({ set_controller: true, controller: identity })}>
-              Assumir controle
-            </button>
-          )}
-          {pblHost && (amController || recorder) && (
+          {podeAvancar && !colunaDaAula && (
             <div className="vr-seq" data-danger={pblStage === "done" || undefined}>
               {/* Só exibe a etapa atual — avançar é exclusividade do botão ao lado,
                   para não disparar a ação sem querer ao ler o rótulo. */}
@@ -1720,8 +1866,7 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
           apresentação abaixo) — IGUAL para host e aluno. O aluno recebe a
           apresentação transmitida (screen-share) na MESMA posição do iframe do host. */}
       <div className="vr-stage" data-pbl={scorm && !pblActive ? "1" : undefined}>
-        {/* Durante os grupos, o facilitador NÃO vê a apresentação — só os grupos. */}
-        {pblActive && !(amStaff && breakoutOpen) && (
+        {colunaDaAula && (
           <aside className="vr-pbl-side">
             {/* A CÂMERA DO FACILITADOR SÓ NO MODO MANUAL. Em automático não há
                 facilitador conduzindo: a cadência conduz, e um tile de alguém
@@ -1732,8 +1877,62 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
                 valendo nos dois modos — some o FALLBACK (o host por ser host),
                 não a fixação. */}
             <PblPanelHeader roster={pblRoster} localIsStaff={amStaff} localIdentity={identity}
-                            pinned={pinned} apenasFixada={!!pblClass?.auto_mode} />
-            {amStaff ? (
+                            pinned={pinned} apenasFixada={!!pblClass?.auto_mode && !breakout.active}
+                            brief={(
+                              <div className="vr-pbl-brief" key={curStep.head}>
+                                <div className="vr-pbl-brief-cab">
+                                  {podeAvancar && (
+                                    <button type="button" className="vr-pbl-brief-go" onClick={runStep}
+                                      disabled={stageBusy} title={seqLabel} aria-label={seqLabel}
+                                      data-danger={pblStage === "done" || breakoutOpen || undefined}
+                                      data-rotulo={breakoutOpen || undefined}>
+                                      {breakoutOpen ? "Encerrar grupos" : I.playTri}
+                                    </button>
+                                  )}
+                                  <span className="vr-pbl-brief-rot">{briefRotulo}</span>
+                                  {podeVoltar && (
+                                    <button type="button" className="vr-pbl-brief-voltar" onClick={voltarUmPasso}
+                                      disabled={stageBusy} title={destinoDoVoltar} aria-label={destinoDoVoltar}>
+                                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
+                                    </button>
+                                  )}
+                                </div>
+                                {briefTexto && <p className="vr-pbl-brief-txt">{briefTexto}</p>}
+                                {/* O progresso mora no cartão: solto no cabeçalho, ele cobria o topo das câmeras. */}
+                                {pblStage === "release_risks" && (
+                                  <ProgressoDasRespostas feitos={pblRoster?.progresso?.riscos_concluidos ?? 0}
+                                    total={pblRoster?.progresso?.elegiveis ?? 0} oque="concluíram os riscos" />
+                                )}
+                                {pblStage === "release_feedback" && (
+                                  <ProgressoDasRespostas feitos={pblRoster?.progresso?.pares ?? 0}
+                                    total={pblRoster?.progresso?.elegiveis ?? 0} oque="avaliaram os colegas" />
+                                )}
+                                {(!!pblClass?.auto_mode || (pblStage === "release_risks" && !!pblClass?.riscos_prazo)) && (
+                                  <ProximaParte etapa={pblStage} inicioEm={pblClass?.stage_started_at} fimEm={pblClass?.stage_ends_at}
+                                                manual={!pblClass?.auto_mode} />
+                                )}
+                                {souOuvinte && !emSuporte && (
+                                  <div className="vr-ouvinte">
+                                    <strong>Você está como ouvinte</strong>
+                                    <p>Os grupos já foram divididos. Acompanhe por aqui: se conectar o pacote, você participa com a turma a partir da plenária.</p>
+                                    {packageUrl && <button type="button" onClick={() => setQrOpen(true)}>Abrir o pacote</button>}
+                                  </div>
+                                )}
+                                {!!pblClass?.lider && !emSuporte && !breakout.active && (
+                                  <PainelDoLider roomId={roomId} lider={pblClass.lider} identity={identity}
+                                    podeParticipar={!amStaff && !souOuvinte} nomeDe={nomeDe}
+                                    naPlenaria={pblStage === "plenary" || pblStage === "question"}
+                                    naPergunta={pblStage === "question"} ultimaPergunta={questaoAtual + 1 >= plenaryTotal}
+                                    onAtualizar={setPblClass} onProximaPergunta={() => mudarDeQuestao(1)} />
+                                )}
+                                <div className="vr-pbl-brief-acoes">{acoesDaAula}</div>
+                              </div>
+                            )} />
+            {emSuporte ? (
+              <div className="vr-pbl-present-big">
+                <RotinaDeSuporte roomId={roomId} pacote={packageUrl} codigo={classCode} moderador={amStaff} />
+              </div>
+            ) : amStaff ? (
               chartForStaff ? (
                 // "Liberar análise de riscos" em diante: SÓ o gráfico (ocultável).
                 !chartHidden ? (
@@ -1749,9 +1948,7 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
               ) : showQuestionsArea ? (
                 <div className="vr-pbl-present-big" {...bannerProps}>
                   {revealedQuestions.length ? (
-                    <QuestionCascade items={revealedQuestions} total={plenaryTotal}
-                      label="Questões para reflexão" progress emphasize
-                      intro={rIntroQuestoes(roteiro)} />
+                    <QuestionCascade items={revealedQuestions} total={plenaryTotal} emphasize />
                   ) : (
                     <div className="vr-pbl-question">
                       <div className="vr-pbl-question-waiting">
@@ -1763,7 +1960,7 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
                 </div>
               ) : (
                 // Demais etapas: a tela do roteiro correspondente.
-                <div className="vr-pbl-present-big" {...bannerProps}><RoteiroStage stage={pblStage} roteiro={roteiro} shown={shownCount} /></div>
+                <div className="vr-pbl-present-big" {...bannerProps}><RoteiroStage stage={pblStage} roteiro={roteiro} shown={shownCount} orientadoras={orientadorasVisiveis} dentroDoGrupo={!!breakout.active} /></div>
               )
             ) : pblStage === "session_start" ? (
               // Pré-atividades: SÓ o facilitador vê a abertura/roteiro. Para o aluno a
@@ -1779,22 +1976,19 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
               // Análise situacional: aluno vê a MESMA cascata dos riscos.
               <div className="vr-pbl-present-big" {...bannerProps}><RiskDimensions roomId={roomId} dims={situationalItems} shown={shownCount} /></div>
             ) : showQuestionsArea ? (
-              // Aluno na plenária: as questões reveladas chegam por dados (o facilitador
-              // comanda o ritmo), e a cascata é a mesma.
-              plenaryQ?.list?.length ? (
+              // Aluno na plenária: a mesma cascata, no ponto que o servidor indica.
+              revealedQuestions.length ? (
                 <div className="vr-pbl-present-big" {...bannerProps}>
-                  <QuestionCascade items={plenaryQ.list} total={plenaryQ.total}
-                    label="Questões para reflexão" progress emphasize
-                    intro={rIntroQuestoes(roteiro)} />
+                  <QuestionCascade items={revealedQuestions} total={plenaryTotal} emphasize />
                 </div>
               ) : null
             ) : chartForStaff ? (
               // release_risks (antes de "Mostrar gráfico"): o aluno está respondendo no
               // celular — mostra as instruções da Análise situacional, não o gráfico.
-              <div className="vr-pbl-present-big" {...bannerProps}><RoteiroStage stage={pblStage} roteiro={roteiro} shown={shownCount} /></div>
+              <div className="vr-pbl-present-big" {...bannerProps}><RoteiroStage stage={pblStage} roteiro={roteiro} shown={shownCount} orientadoras={orientadorasVisiveis} dentroDoGrupo={!!breakout.active} /></div>
             ) : (
               // Demais etapas: o aluno vê exatamente a mesma tela do facilitador.
-              <div className="vr-pbl-present-big" {...bannerProps}><RoteiroStage stage={pblStage} roteiro={roteiro} shown={shownCount} /></div>
+              <div className="vr-pbl-present-big" {...bannerProps}><RoteiroStage stage={pblStage} roteiro={roteiro} shown={shownCount} orientadoras={orientadorasVisiveis} dentroDoGrupo={!!breakout.active} /></div>
             )}
           </aside>
         )}
@@ -1802,7 +1996,7 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
           {amStaff && breakoutOpen && !breakout.active
             ? <HostBreakoutOverview roomId={roomId} onEnter={breakout.enter} />
             : scorm
-              ? <OpenPblStudentsGrid roomId={roomId} roster={pblRoster} localIsStaff={amStaff} localIdentity={identity} sideScreen={pblActive} />
+              ? <OpenPblStudentsGrid roomId={roomId} roster={pblRoster} localIsStaff={amStaff} localIdentity={identity} sideScreen={pblActive} liderIdentity={pblClass?.lider?.identity} liderDoGrupo={breakout.active?.leaderIdentity} />
               : <VideoGrid />}
           {showBoard && (
             <div className="vr-wb-overlay">
@@ -1827,6 +2021,7 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
                 {panel === "chat" && <RoomChat roomId={roomId} senderName={senderName} channel={breakout.active?.groupId} channelLabel={breakout.active?.groupName} />}
                 {panel === "people" && (
                   <PeoplePanel
+                    ocultarStaff={!!pblClass?.auto_mode && !amStaff}
                     roomId={roomId} isStaff={amStaff} inviteUrl={inviteUrl}
                     roster={pblRoster} moderators={moderators} controller={controller}
                     pinned={pinned} localIdentity={identity} onSetRole={setRole}
@@ -1886,6 +2081,36 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
         </div>
       )}
 
+      {pblActive && !breakout.active && (
+        <ModalDaVotacao roomId={roomId} estado={pblClass} identity={identity} nomeDe={nomeDe}
+          presentes={pblRoster?.progresso?.alunos ?? 0} elegiveis={pblRoster?.progresso?.elegiveis ?? 0}
+          votaNoLider={!amStaff && !souOuvinte} votaNaEtapa={!amStaff} onAtualizar={setPblClass} />
+      )}
+
+      {confirmaModo && (
+        <div className="vr-modal-backdrop" onClick={() => setConfirmaModo(false)}>
+          <div className="vr-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            {pblClass?.auto_mode !== false ? (
+              <>
+                <h3>Mudar para o modo manual?</h3>
+                <p>A sala deixa de avançar sozinha: o tempo da etapa e a votação da turma param. Você passa a conduzir o encontro, e cada etapa só avança quando você clicar em prosseguir.</p>
+              </>
+            ) : (
+              <>
+                <h3>Mudar para o modo automático?</h3>
+                <p>A sala passa a avançar sozinha e o tempo da etapa atual recomeça do zero. Ao fim de cada etapa, a turma é consultada para seguir; as etapas da abertura avançam sem perguntar. O botão de prosseguir e a sua câmera saem da coluna.</p>
+              </>
+            )}
+            <div className="vr-modal-actions">
+              <button className="vr-modal-btn" onClick={() => setConfirmaModo(false)}>Cancelar</button>
+              <button className="vr-modal-btn vr-modal-btn-primary" onClick={trocarModo} autoFocus>
+                {pblClass?.auto_mode !== false ? "Mudar para manual" : "Mudar para automático"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* QR code do Pacote de Classe: o aluno escaneia (celular) ou clica em "Abrir
           pacote" (navegador). Gerado da URL informada na criação da sala. */}
       {qrOpen && packageUrl && (
@@ -1895,7 +2120,7 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
             <h3>Pacote da atividade</h3>
             <p>Aponte a câmera do celular para o QR code para abrir o pacote.</p>
             <div className="vr-qr-code">
-              <QRCodeSVG value={packageUrl} size={240} includeMargin level="M" />
+              <QrPersonalizado valor={packageUrl} rotulo="QR code do pacote da atividade" />
             </div>
             <a className="vr-modal-btn vr-modal-btn-primary" href={packageUrl} target="_blank" rel="noopener noreferrer">
               Abrir pacote no navegador
@@ -1909,11 +2134,24 @@ export function RoomShell({ roomId, roomTitle, isStaff, inviteUrl, senderName, i
           não vê o popup se o facilitador tiver ocultado o código para a turma. */}
       {pblActive && classCode && codeExpand && (amStaff || !codeHiddenForStudents) && (
         <div className="vr-sheet-backdrop" onClick={closeCodePopup}>
-          <div className="vr-pbl-code-big" onClick={(e) => e.stopPropagation()}>
+          <div className="vr-pbl-code-big" data-com-qr={packageUrl ? "1" : undefined} onClick={(e) => e.stopPropagation()}>
             <button className="vr-sheet-close vr-pbl-big-x" onClick={closeCodePopup} aria-label="Fechar">✕</button>
-            <span className="vr-pbl-code-label">Class code</span>
-            <button type="button" className="vr-pbl-code-huge" onClick={copyClassCode} title="Clique para copiar">{classCode}</button>
-            <span className="vr-pbl-code-hint">{codeCopied ? "Copiado! ✓" : "toque para copiar"}</span>
+            {packageUrl && (
+              <div className="vr-pbl-code-qr">
+                <QrPersonalizado valor={packageUrl} rotulo="QR code para acessar a aplicação deste encontro" />
+              </div>
+            )}
+            <div className="vr-pbl-code-info">
+              <span className="vr-pbl-code-label">Class code</span>
+              <button type="button" className="vr-pbl-code-huge" onClick={copyClassCode} title="Clique para copiar">{classCode}</button>
+              <span className="vr-pbl-code-hint">{codeCopied ? "Copiado! ✓" : "toque para copiar"}</span>
+              {packageUrl && (
+                <ol className="vr-pbl-code-passos">
+                  <li>Aponte o smartphone para o QR Code.</li>
+                  <li>Digite o class code no chat da aplicação para registrar sua presença.</li>
+                </ol>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -2060,15 +2298,17 @@ function useVozDaEtapa(urls: string[], ativo: boolean) {
 function ControleDaVoz({ falando, silenciado, onAlternar, onRepetir }: {
   falando: boolean; silenciado: boolean; onAlternar: () => void; onRepetir: () => void;
 }) {
+  const estado = silenciado ? "Voz desligada" : falando ? "Falando…" : "Voz ligada";
   return (
     <div className="vr-voz">
-      <button className="vr-voz__btn" onClick={onAlternar}
-        title={silenciado ? "A sala não está falando as instruções" : "A sala fala as instruções ao abrir a etapa"}>
-        {silenciado ? "🔇 Voz desligada" : falando ? "🔊 Falando…" : "🔊 Voz ligada"}
+      <button className="vr-voz__btn" onClick={onAlternar} aria-label={estado}
+        data-falando={(!silenciado && falando) || undefined} data-mudo={silenciado || undefined}
+        title={`${estado}. ${silenciado ? "A sala não está falando as instruções" : "A sala fala as instruções ao abrir a etapa"}`}>
+        {silenciado ? I.vozOff : I.voz}<span className="vr-acao-rot">{estado}</span>
       </button>
-      <button className="vr-voz__btn" onClick={onRepetir} disabled={silenciado}
+      <button className="vr-voz__btn" onClick={onRepetir} disabled={silenciado} aria-label="Repetir as instruções"
         title="Toca as instruções desta etapa de novo, do começo">
-        ↻ Repetir
+        {I.repetir}<span className="vr-acao-rot">Repetir</span>
       </button>
     </div>
   );
@@ -2137,17 +2377,12 @@ function ClassCodeChip({ code, copied, closed, onClick, onToggleHidden, hiddenFo
 
 /** Centro do header do facilitador: SOMENTE o nome da atividade atual + progresso.
  *  O class-code foi para a esquerda (marca) e o botão ▶ para a direita (controles). */
-function ActivityBar({ stage, head, antes }: {
+function ActivityBar({ stage, head }: {
   stage: OpenPblStage; head: string;
-  /** Vai à ESQUERDA do título, dentro do bloco centralizado. Hoje é a chave
-   *  Automático/Manual: no canto superior direito ela ficava perdida entre os
-   *  controles da chamada, e o que ela governa é a etapa — que está aqui. */
-  antes?: React.ReactNode;
 }) {
   const step = stepIndex(stage);
   return (
     <div className="vr-actbar">
-      {antes}
       <div className="vr-actbar-info">
         <span className="vr-actbar-name">{head}</span>
         {step >= 0 && (
@@ -2228,7 +2463,7 @@ function RiskChart({ roomId, canFilter = false, showPending = false, hiddenSerie
   useEffect(() => { onSeries?.(serieNames ? serieNames.split("|") : []); }, [serieNames]);
 
   if (status === "nodim")
-    return <div className="vr-chart-msg">Selecione o <b>conjunto de dimensões</b> na criação da sala para exibir o gráfico de riscos.</div>;
+    return <div className="vr-chart-msg"><span>Selecione o <b>conjunto de dimensões</b> na criação da sala para exibir o gráfico de riscos.</span></div>;
   if (!chart)
     return <div className="vr-chart-msg">{status === "loading" ? "Carregando gráfico…" : "Aguardando as respostas dos alunos…"}</div>;
 
@@ -2279,8 +2514,7 @@ function RiskDimensions({ roomId, dims: roomDims, shown = 1 }: {
   return dims.length ? (
     // Mesma animação/CSS das questões da plenária: mesmo componente e mesmas flags
     // (progress + emphasize) → cards idênticos, com dots e realce do último.
-    <QuestionCascade items={dims.slice(0, shown)} total={dims.length}
-      label="Principais riscos" progress emphasize />
+    <QuestionCascade items={dims.slice(0, shown)} total={dims.length} emphasize />
   ) : (
     <div className="vr-pbl-question">
       <div className="vr-pbl-question-waiting">Carregando dimensões de risco…</div>
@@ -2424,11 +2658,12 @@ function RadarSvg({ dims, series, max, answered, total, canFilter = false, hidde
  *  Sem isto o grid usa uma largura mínima fixa: com muitos alunos ele estoura
  *  em linhas e vira uma pilha rolável em vez de distribuir no espaço livre. */
 const TILE_RATIO = 16 / 10;
-const TILE_GAP = 6;   // precisa casar com o `gap` de .vr-pbl-students (room.css)
+const TILE_GAP = 8;   // precisa casar com o `gap` de .vr-pbl-students (room.css)
 
 function useFittedCols(count: number) {
   const ref = useRef<HTMLDivElement>(null);
   const [cols, setCols] = useState(1);
+  const [lado, setLado] = useState(0);
 
   useEffect(() => {
     const el = ref.current;
@@ -2446,7 +2681,17 @@ function useFittedCols(count: number) {
         const side = Math.min(tw, th * TILE_RATIO);
         if (side > bestSide) { bestSide = side; best = c; }
       }
-      setCols(best);
+      // Turma cheia em ao menos 4 colunas, como no mock do site: a maior câmera possível
+      // daria 3 colunas altas, e a sala é para ver todo mundo de uma vez.
+      const colunas = count >= 7 ? Math.max(best, 4) : best;
+      const linhas = Math.ceil(count / colunas);
+      // A largura respeita a ALTURA também: é ela que impede a grade de passar da tela.
+      const largura = Math.min(
+        (W - TILE_GAP * (colunas - 1)) / colunas,
+        ((H - TILE_GAP * (linhas - 1)) / linhas) * TILE_RATIO,
+      );
+      setCols(colunas);
+      setLado(Math.floor(largura));
     };
     compute();
     const ro = new ResizeObserver(compute);
@@ -2454,7 +2699,7 @@ function useFittedCols(count: number) {
     return () => ro.disconnect();
   }, [count]);
 
-  return { ref, cols };
+  return { ref, cols, lado };
 }
 
 /** Grade dos ALUNOS (área principal, à direita) com borda de status:
@@ -2593,6 +2838,333 @@ function RelogioDaEtapa({ fimEm, auto, proxima }: {
   );
 }
 
+/** O que cada etapa é, para quem está esperando por ela. Texto para o participante: os
+ *  rótulos de `STEPS` são ações de quem conduz ("Liberar análise individual de riscos"). */
+const PROXIMA_PARTE: Partial<Record<OpenPblStage, { titulo: string; sinopse: string }>> = {
+  registration_open: { titulo: "Registro de Presença", sinopse: "Aponte o celular para o QR Code e digite o class code no chat para registrar sua presença." },
+  amplify_code: { titulo: "Código da sessão", sinopse: "O código aparece em destaque na tela, para quem ainda não se registrou." },
+  registration_close: { titulo: "Fim do registro", sinopse: "O registro de presença é encerrado e a turma é dividida em grupos." },
+  synopsis: { titulo: "Situação-problema", sinopse: "Relembramos a sinopse do episódio antes de começar a discussão." },
+  groups: { titulo: "Aquecimento em grupos", sinopse: "Em grupos de até 5 pessoas, cada um apresenta seu ponto de vista sobre as questões orientadoras." },
+  plenary: { titulo: "Discussão em Plenária", sinopse: "Todos voltam à sala para apresentar e contra-argumentar as ideias sobre a situação-problema." },
+  question: { titulo: "Questões para reflexão", sinopse: "Uma sequência de questões, cada uma dirigida a um participante, orienta a discussão." },
+  situational: { titulo: "Análise situacional", sinopse: "Cada participante sintetiza sua análise sobre as ações possíveis diante da situação-problema." },
+  release_risks: { titulo: "Avaliação dos riscos", sinopse: "No celular, você avalia cada risco por probabilidade e impacto." },
+  show_chart: { titulo: "Resultado dos riscos", sinopse: "O gráfico mostra como a turma avaliou os principais riscos." },
+  closing: { titulo: "Fechamento da análise", sinopse: "Os últimos comentários sobre o resultado da análise de riscos." },
+  release_feedback: { titulo: "Feedback da interação", sinopse: "Você compartilha suas percepções sobre a interação com os colegas do grupo." },
+  done: { titulo: "Encerramento", sinopse: "O encontro chega ao fim." },
+};
+
+/** Modo automático: a próxima parte e quanto falta. A conta desce de `stage_ends_at`
+ *  e a barra usa `stage_started_at`, os dois prontos do servidor: a duração continua
+ *  morando só em `cadencia.py`. */
+function ProximaParte({ etapa, inicioEm, fimEm, manual = false }: {
+  etapa: OpenPblStage; inicioEm?: string | null; fimEm?: string | null;
+  /** No manual o prazo só informa: quem avança é o facilitador. */
+  manual?: boolean;
+}) {
+  const [resta, setResta] = useState<number | null>(null);
+  useEffect(() => {
+    if (!fimEm) { setResta(null); return; }
+    const fim = new Date(fimEm).getTime();
+    const tick = () => setResta(Math.max(0, Math.round((fim - Date.now()) / 1000)));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [fimEm]);
+
+  const proxima = PROXIMA_PARTE[STEP_IDS[Math.min(stepIndex(etapa) + 1, STEP_IDS.length - 1)] as OpenPblStage];
+  if (resta == null || !proxima || etapa === "done") return null;
+  const total = inicioEm && fimEm ? (new Date(fimEm).getTime() - new Date(inicioEm).getTime()) / 1000 : 0;
+  const feito = total > 0 ? Math.min(100, Math.max(0, (1 - resta / total) * 100)) : 0;
+  return (
+    <div className="vr-prox vr-surge" key={etapa}>
+      <div className="vr-prox-info">
+        <span className="vr-prox-rot">A seguir</span>
+        <strong className="vr-prox-tit">{proxima.titulo}</strong>
+        <p className="vr-prox-sin"><Digitando texto={proxima.sinopse} atraso={200} /></p>
+      </div>
+      <div className="vr-prox-tempo" role="timer">
+        {/* Zero não é "acabou": é o instante em que a cadência age. */}
+        {resta > 0
+          ? <b>{Math.floor(resta / 60)}:{String(resta % 60).padStart(2, "0")}</b>
+          : <span className="vr-prox-seguindo">{manual ? "prazo encerrado" : "seguindo…"}</span>}
+      </div>
+      <div className="vr-prox-barra" aria-hidden><i style={{ width: `${feito}%` }} /></div>
+    </div>
+  );
+}
+
+/** A votação em andamento, com os totais subindo em tempo real. Mostra quantos votos cada
+ *  opção tem, nunca quem votou em quê. Abre sozinho a cada votação; fechado, volta na próxima. */
+function ModalDaVotacao({ roomId, estado, identity, nomeDe, presentes, elegiveis, votaNoLider, votaNaEtapa, onAtualizar }: {
+  roomId: string; estado: any; identity?: string; nomeDe: (id?: string | null) => string;
+  presentes: number; elegiveis: number; votaNoLider: boolean; votaNaEtapa: boolean;
+  onAtualizar: (estado: any) => void;
+}) {
+  const sdk = useSDK();
+  const lider = estado?.lider;
+  const tipo: "lider" | "etapa" | null = lider?.fase === "votacao" ? "lider" : estado?.vote_ends_at ? "etapa" : null;
+  const ate: string | null = tipo === "lider" ? lider.ate : tipo === "etapa" ? estado.vote_ends_at : null;
+  const chave = tipo ? `${tipo}:${ate}` : "";
+  const [fechada, setFechada] = useState("");
+  const [meuLider, setMeuLider] = useState<string | null>(null);
+  const [restam, setRestam] = useState(0);
+  const [fim, setFim] = useState<any | null>(null);
+  const ultima = useRef<any | null>(null);
+
+  useEffect(() => {
+    if (!ate) { setRestam(0); return; }
+    const alvo = new Date(ate).getTime();
+    const tick = () => setRestam(Math.max(0, Math.ceil((alvo - Date.now()) / 1000)));
+    tick();
+    const id = setInterval(tick, 250);
+    return () => clearInterval(id);
+  }, [ate]);
+
+  const votos: Record<string, boolean> = estado?.votes || {};
+  const linhas: { id: string; nome: string; votos: number; minha: boolean }[] = tipo === "lider"
+    ? (lider.candidatos || []).map((c: string) => ({
+        id: c, nome: c === identity ? "Você" : nomeDe(c), votos: lider.contagem?.[c] ?? 0, minha: meuLider === c,
+      }))
+    : tipo === "etapa"
+      ? [
+          { id: "sim", nome: "Sim, pode seguir", votos: Object.values(votos).filter(Boolean).length, minha: !!identity && votos[identity] === true },
+          { id: "nao", nome: "Ainda não", votos: Object.values(votos).filter((v) => !v).length, minha: !!identity && votos[identity] === false },
+        ]
+      : [];
+  const votaram = tipo === "lider" ? (lider.votantes || []).length : Object.keys(votos).length;
+  const base = tipo === "lider" ? elegiveis : presentes;
+  const titulo = tipo === "lider" ? "Quem vai liderar a sessão?" : "Podemos seguir?";
+
+  // Terminada a votação, o resultado fica na tela por alguns segundos.
+  useEffect(() => {
+    if (tipo) {
+      ultima.current = { tipo, titulo, linhas, votaram, base, etapa: estado?.stage, chave };
+      setFim(null);
+      return;
+    }
+    if (!ultima.current) return;
+    const resultado = ultima.current;
+    ultima.current = null;
+    if (fechada === resultado.chave) return;
+    setFim(resultado);
+    const t = setTimeout(() => setFim(null), 5000);
+    return () => clearTimeout(t);
+  }, [tipo, chave, votaram, base, JSON.stringify(linhas)]);
+  useEffect(() => { setMeuLider(null); }, [chave]);
+
+  const mostrar = tipo ? (fechada !== chave ? { titulo, linhas, votaram, base } : null) : fim;
+  if (!mostrar) return null;
+
+  const podeVotar = tipo === "lider" ? votaNoLider : tipo === "etapa" ? votaNaEtapa && !(identity && identity in votos) : false;
+  const votar = async (id: string) => {
+    try {
+      if (tipo === "lider") { setMeuLider(id); onAtualizar(await sdk.openpbl.votarLider(roomId, id)); }
+      else await sdk.openpbl.votar(roomId, id === "sim");
+    } catch { /* a votação fechou: o próximo estado corrige a tela */ }
+  };
+  const fechar = () => { if (tipo) setFechada(chave); else setFim(null); };
+  const desfecho = !tipo && fim
+    ? (fim.tipo === "lider"
+        ? (lider?.fase === "definido" ? `Líder da sessão: ${lider.identity === identity ? "você" : nomeDe(lider.identity)}` : "Votação encerrada")
+        : (estado?.stage !== fim.etapa ? "A turma aprovou: seguindo" : "Sem aprovação: mais tempo nesta etapa"))
+    : null;
+
+  return (
+    <div className="vr-votacao-fundo" onClick={fechar}>
+      <div className="vr-votacao" role="dialog" aria-label={mostrar.titulo} onClick={(e) => e.stopPropagation()}>
+        <button type="button" className="vr-sheet-close" onClick={fechar} aria-label="Fechar">✕</button>
+        <div className="vr-votacao-cab">
+          <h3>{mostrar.titulo}</h3>
+          {tipo && <b role="timer">{restam > 0 ? `${restam}s` : "apurando…"}</b>}
+        </div>
+        <p className="vr-votacao-conta">{mostrar.votaram} de {mostrar.base} já votaram</p>
+        <div className="vr-votacao-ops">
+          {mostrar.linhas.map((l: any) => {
+            const pct = mostrar.votaram ? Math.round((l.votos / mostrar.votaram) * 100) : 0;
+            return (
+              <button type="button" key={l.id} className="vr-votacao-op" disabled={!podeVotar || !tipo}
+                data-minha={l.minha || undefined} onClick={() => votar(l.id)}>
+                <i style={{ width: `${pct}%` }} aria-hidden />
+                <span className="vr-votacao-nome">{l.nome}</span>
+                <span className="vr-votacao-num">{l.votos} {l.votos === 1 ? "voto" : "votos"} · {pct}%</span>
+              </button>
+            );
+          })}
+        </div>
+        {desfecho
+          ? <p className="vr-votacao-fim">{desfecho}</p>
+          : tipo === "etapa" && <p className="vr-votacao-nota">Quem não responder conta como “ainda não”.</p>}
+      </div>
+    </div>
+  );
+}
+
+/** Escolha do líder geral e, escolhido, o guia e o botão de quem conduz as perguntas. */
+function PainelDoLider({ roomId, lider, identity, podeParticipar, nomeDe, naPlenaria, naPergunta, ultimaPergunta, onAtualizar, onProximaPergunta }: {
+  roomId: string; lider: OpenPblLider; identity?: string; podeParticipar: boolean;
+  nomeDe: (id?: string | null) => string; naPlenaria: boolean; naPergunta: boolean; ultimaPergunta: boolean;
+  onAtualizar: (estado: any) => void; onProximaPergunta: () => Promise<void>;
+}) {
+  const sdk = useSDK();
+  const [resta, setResta] = useState(0);
+  const [ocupado, setOcupado] = useState(false);
+  const [escolhido, setEscolhido] = useState<string | null>(null);
+  useEffect(() => {
+    if (!lider.ate) { setResta(0); return; }
+    const fim = new Date(lider.ate).getTime();
+    const tick = () => setResta(Math.max(0, Math.round((fim - Date.now()) / 1000)));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [lider.ate]);
+  useEffect(() => { setEscolhido(null); }, [lider.fase, lider.ate]);
+
+  const agir = async (acao: () => Promise<any>) => {
+    setOcupado(true);
+    try { onAtualizar(await acao()); } catch { /* a janela fechou: o próximo estado corrige a tela */ }
+    finally { setOcupado(false); }
+  };
+
+  if (lider.fase === "voluntarios") {
+    const sou = !!identity && lider.voluntarios.includes(identity);
+    return (
+      <div className="vr-lider">
+        <div className="vr-lider-cab"><strong>Quem lidera a sessão?</strong><b role="timer">{resta}s</b></div>
+        <p>O líder conduz as perguntas da plenária. Com mais de um voluntário, a turma vota.</p>
+        {lider.voluntarios.length > 0 && <p className="vr-lider-nomes">Voluntários: {lider.voluntarios.map(nomeDe).join(", ")}</p>}
+        {podeParticipar && (
+          <button type="button" className="vr-lider-go" disabled={sou || ocupado}
+            onClick={() => agir(() => sdk.openpbl.voluntariarLider(roomId))}>
+            {sou ? "Você se voluntariou" : "Quero ser líder"}
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  if (lider.fase === "votacao") {
+    const votou = !!identity && lider.votantes.includes(identity);
+    return (
+      <div className="vr-lider">
+        <div className="vr-lider-cab"><strong>Vote no líder da sessão</strong><b role="timer">{resta}s</b></div>
+        {podeParticipar ? (
+          <div className="vr-lider-opcoes">
+            {lider.candidatos.map((c) => (
+              <button type="button" key={c} disabled={ocupado} data-escolhido={escolhido === c || undefined}
+                onClick={() => { setEscolhido(c); agir(() => sdk.openpbl.votarLider(roomId, c)); }}>
+                {c === identity ? "Eu" : nomeDe(c)}
+              </button>
+            ))}
+          </div>
+        ) : <p>A turma está votando.</p>}
+        <p className="vr-lider-nomes">{votou ? "Voto registrado. Você pode mudar até o tempo acabar. " : ""}{lider.votantes.length} {lider.votantes.length === 1 ? "voto" : "votos"}</p>
+      </div>
+    );
+  }
+
+  const souEu = !!identity && lider.identity === identity;
+  if (!souEu) {
+    return <div className="vr-lider vr-lider-definido"><span><Coroa />Líder da sessão</span><strong>{nomeDe(lider.identity)}</strong></div>;
+  }
+  return (
+    <div className="vr-lider">
+      <div className="vr-lider-cab"><strong><Coroa /> Você é o líder da sessão</strong></div>
+      {naPlenaria && (
+        <ol className="vr-lider-guia">
+          <li>Leia a pergunta em voz alta.</li>
+          <li>Dê a palavra a quem ainda não falou.</li>
+          <li>Quando a turma concluir, siga para a próxima pergunta.</li>
+        </ol>
+      )}
+      {naPergunta && (
+        <button type="button" className="vr-lider-go" disabled={ocupado}
+          onClick={async () => { setOcupado(true); try { await onProximaPergunta(); } finally { setOcupado(false); } }}>
+          {ultimaPergunta ? "Encerrar as perguntas" : "Próxima pergunta"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+const PROBLEMAS_DO_PACOTE: { id: string; titulo: string; passos: string[] }[] = [
+  { id: "internet", titulo: "Estou sem internet", passos: [
+    "Confira se o Wi-Fi ou os dados móveis estão ligados no celular.",
+    "Se o sinal estiver fraco, troque do Wi-Fi para os dados móveis, ou o contrário.",
+    "Abra qualquer site para testar. Se abrir, escaneie o QR code de novo.",
+  ] },
+  { id: "qr", titulo: "O QR code não abre", passos: [
+    "Aponte a câmera do celular para o QR code e toque no link que aparecer.",
+    "Se a câmera não reconhecer, afaste um pouco o celular e aumente o brilho da tela.",
+    "Se ainda não abrir, use o botão Abrir no navegador.",
+  ] },
+  { id: "erro", titulo: "Dá erro ao abrir o pacote", passos: [
+    "Feche a aba do pacote e abra de novo pelo QR code.",
+    "Se o erro continuar, tente outro navegador, como Chrome ou Safari.",
+    "Se estiver no computador, tente pelo celular, ou o contrário.",
+  ] },
+  { id: "codigo", titulo: "O código não é aceito", passos: [
+    "Confira o código ao lado, letra por letra.",
+    "Use o mesmo e-mail com que você entrou nesta sala.",
+    "Se ainda assim recusar, chame ajuda: o moderador confere o seu cadastro.",
+  ] },
+];
+
+/** O que o aluno vê na sala de suporte. A verificação é do servidor: conectado o pacote,
+ *  ele volta para a turma sozinho, sem precisar clicar em nada. */
+function RotinaDeSuporte({ roomId, pacote, codigo, moderador }: {
+  roomId: string; pacote: string | null; codigo: string | null; moderador: boolean;
+}) {
+  const sdk = useSDK();
+  const [problema, setProblema] = useState(PROBLEMAS_DO_PACOTE[0].id);
+  const [ajuda, setAjuda] = useState<"nao" | "enviando" | "pedida">("nao");
+  const atual = PROBLEMAS_DO_PACOTE.find((p) => p.id === problema) ?? PROBLEMAS_DO_PACOTE[0];
+  const pedirAjuda = async () => {
+    setAjuda("enviando");
+    try { await sdk.openpbl.pedirAjuda(roomId); setAjuda("pedida"); } catch { setAjuda("nao"); }
+  };
+  return (
+    <div className="vr-suporte vr-surge">
+      <header className="vr-suporte-cab">
+        <h2>{moderador ? "Sala de suporte" : "Vamos conectar o seu pacote"}</h2>
+        <p>{moderador
+          ? "Os alunos aqui ainda não conectaram o pacote. Oriente pelos passos abaixo."
+          : "Você precisa do pacote para participar dos grupos. Escolha o que está acontecendo."}</p>
+      </header>
+      <div className="vr-suporte-corpo">
+        <div className="vr-suporte-passos">
+          <div className="vr-suporte-problemas" role="tablist">
+            {PROBLEMAS_DO_PACOTE.map((p) => (
+              <button type="button" key={p.id} role="tab" aria-selected={p.id === problema}
+                onClick={() => setProblema(p.id)}>{p.titulo}</button>
+            ))}
+          </div>
+          <ol>{atual.passos.map((passo) => <li key={passo}>{passo}</li>)}</ol>
+        </div>
+        <div className="vr-suporte-acesso">
+          {pacote && (
+            <div className="vr-suporte-qr"><QrPersonalizado valor={pacote} rotulo="QR code do pacote da atividade" /></div>
+          )}
+          {codigo && <div className="vr-suporte-codigo"><span>Class code</span><strong>{codigo}</strong></div>}
+          {pacote && <a href={pacote} target="_blank" rel="noopener noreferrer">Abrir no navegador</a>}
+        </div>
+      </div>
+      {!moderador && (
+        <footer className="vr-suporte-rodape">
+          <span className="vr-suporte-check" role="status">
+            <i aria-hidden />Verificando o pacote. Quando conectar, você volta para a turma sozinho.
+          </span>
+          <button type="button" onClick={pedirAjuda} disabled={ajuda !== "nao"}>
+            {ajuda === "pedida" ? "Ajuda a caminho" : ajuda === "enviando" ? "Chamando…" : "Chamar ajuda"}
+          </button>
+        </footer>
+      )}
+    </div>
+  );
+}
+
 /* ── Histórico das comunicações do facilitador ────────────────────────────────
  *
  * O que já foi dito no encontro, em ordem. Para TODO MUNDO: quem chegou
@@ -2623,7 +3195,7 @@ function frasePara(c: OpenPblComunicacao): string {
       // afirmaria uma intenção que ninguém manifestou.
       return `A turma pediu mais tempo (${placar}) em ${etapa(c.meta.stage)}.`;
     case "etapa_manual":
-      return `O facilitador avançou à mão para ${etapa(c.meta.stage)}.`;
+      return `O facilitador levou a sala para ${etapa(c.meta.stage)}.`;
     case "recado":
       return c.texto;
     default:
@@ -2647,8 +3219,9 @@ function HistoricoDasComunicacoes({ itens, aberto, onAlternar }: {
   };
   return (
     <div className="vr-hist">
-      <button type="button" className="vr-hist__botao" aria-expanded={aberto} onClick={onAlternar}>
-        Histórico ({itens.length})
+      <button type="button" className="vr-hist__botao" aria-expanded={aberto} onClick={onAlternar}
+        title={`Histórico das comunicações (${itens.length})`} aria-label={`Histórico das comunicações (${itens.length})`}>
+        {I.historico}<span className="vr-acao-rot">Histórico</span><span className="vr-acao-num">{itens.length}</span>
       </button>
       {aberto && (
         <ul className="vr-hist__lista">
@@ -2691,8 +3264,9 @@ function PainelDaTranscricao({ itens, aberto, onAlternar }: {
   };
   return (
     <div className="vr-hist vr-transcricao">
-      <button type="button" className="vr-hist__botao" aria-expanded={aberto} onClick={onAlternar}>
-        Transcrição ({itens.length})
+      <button type="button" className="vr-hist__botao" aria-expanded={aberto} onClick={onAlternar}
+        title={`Transcrição (${itens.length})`} aria-label={`Transcrição (${itens.length})`}>
+        {I.transcricao}<span className="vr-acao-rot">Transcrição</span><span className="vr-acao-num">{itens.length}</span>
       </button>
       {aberto && (
         <ul className="vr-hist__lista">
@@ -2914,7 +3488,7 @@ function MenuAvaliacao({ roomId, alvo, criterios, onFechar }: {
   );
 }
 
-function OpenPblStudentsGrid({ roomId, roster, localIsStaff, localIdentity, strip, sideScreen }: { roomId: string; roster: any | null; localIsStaff: boolean; localIdentity?: string; strip?: boolean; sideScreen?: boolean }) {
+function OpenPblStudentsGrid({ roomId, roster, localIsStaff, localIdentity, strip, sideScreen, liderIdentity, liderDoGrupo }: { roomId: string; roster: any | null; localIsStaff: boolean; localIdentity?: string; strip?: boolean; sideScreen?: boolean; liderIdentity?: string | null; liderDoGrupo?: string | null }) {
   const tracks = useTracks(
     [{ source: Track.Source.Camera, withPlaceholder: true }, { source: Track.Source.ScreenShare, withPlaceholder: false }],
     { onlySubscribed: false },
@@ -2935,7 +3509,7 @@ function OpenPblStudentsGrid({ roomId, roster, localIsStaff, localIdentity, stri
   const studentTiles = tracks.filter((t) => t.source === Track.Source.Camera && !isHostTile(t.participant.identity) && !isBroadcast(t.participant.identity) && !isEgress(t.participant.identity));
 
   // O strip é uma faixa horizontal rolável; só a grade cheia se ajusta ao espaço.
-  const { ref: gridRef, cols } = useFittedCols(strip ? 0 : studentTiles.length);
+  const { ref: gridRef, cols, lado } = useFittedCols(strip ? 0 : studentTiles.length);
 
   const sdk = useSDK();
   const [avaliando, setAvaliando] = useState<{ identity: string; nome: string; x: number; y: number } | null>(null);
@@ -2957,7 +3531,11 @@ function OpenPblStudentsGrid({ roomId, roster, localIsStaff, localIdentity, stri
     <div
       ref={gridRef}
       className={strip ? "vr-pbl-students vr-pbl-students--strip" : "vr-pbl-students"}
-      style={strip ? undefined : { gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
+      style={strip ? undefined : lado
+        // Medidas exatas: uma linha automática não acompanha a proporção do tile e as
+        // câmeras se sobrepunham enquanto a turma entrava.
+        ? { gridTemplateColumns: `repeat(${cols}, ${lado}px)`, gridAutoRows: `${Math.floor(lado / TILE_RATIO)}px` }
+        : { gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
     >
       {studentTiles.length === 0 && <div className="vr-pbl-empty">Aguardando alunos…</div>}
       {studentTiles.map((t) => {
@@ -2989,6 +3567,14 @@ function OpenPblStudentsGrid({ roomId, roster, localIsStaff, localIdentity, stri
             <ParticipantTile trackRef={t} />
             <SignalBars participant={t.participant} />
             {st?.registered && <span className="vr-pbl-reg" title="Registrado na sessão (class-code inserido)">✓</span>}
+            {(t.participant.identity === liderIdentity || t.participant.identity === liderDoGrupo || st?.suporte === "ouvinte" || st?.nao_fez_riscos) && (
+              <span className="vr-pbl-marcas">
+                {t.participant.identity === liderIdentity && <span data-tipo="lider" title="Líder geral da sessão"><Coroa />Líder da sessão</span>}
+                {t.participant.identity === liderDoGrupo && <span data-tipo="lider-grupo" title="Líder deste grupo"><Coroa />Líder do grupo</span>}
+                {st?.suporte === "ouvinte" && <span data-tipo="ouvinte" title="Sem o pacote: acompanha sem participar das contagens">Ouvinte</span>}
+                {st?.nao_fez_riscos && <span data-tipo="nf" title="Não Fez: o prazo dos riscos terminou sem nenhuma resposta">NF</span>}
+              </span>
+            )}
           </div>
         );
       })}
@@ -3021,10 +3607,12 @@ function OpenPblStudentsGrid({ roomId, roster, localIsStaff, localIdentity, stri
 
 /** Header do painel (OpenPBL): câmera do facilitador destacada. O class-code saiu
  *  daqui e passou a viver ao lado da etapa atual (ver ClassCodeChip / popup). */
-function PblPanelHeader({ roster, localIsStaff, localIdentity, pinned, apenasFixada }: {
+function PblPanelHeader({ roster, localIsStaff, localIdentity, pinned, apenasFixada, brief }: {
   roster: any | null; localIsStaff: boolean; localIdentity?: string; pinned?: string | null;
   /** Em modo automático: mostra SÓ a câmera fixada, nunca o host por ser host. */
   apenasFixada?: boolean;
+  /** Cartão ao lado da câmera: a etapa, a instrução e o play de quem dirige. */
+  brief?: ReactNode;
 }) {
   const tracks = useTracks([{ source: Track.Source.Camera, withPlaceholder: true }], { onlySubscribed: false });
 
@@ -3042,23 +3630,28 @@ function PblPanelHeader({ roster, localIsStaff, localIdentity, pinned, apenasFix
         ? null      // modo automático: sem fixação, não há câmera nesta coluna
         : tracks.find((t) => !isEgress(t.participant.identity) && isHostTile(t.participant.identity)));
 
-  if (!hostTrack) return null;
+  if (!hostTrack && !brief) return null;
   // Só o primeiro nome sobre a câmera — o nome completo continua no painel de
   // participantes. A label nativa do LiveKit é ocultada por CSS (.vr-pbl-head-cam
   // .lk-participant-metadata) e este chip a substitui, tapando o mínimo do rosto.
-  const firstName = (hostTrack.participant.name || "").trim().split(/\s+/)[0] || "";
+  const firstName = (hostTrack?.participant.name || "").trim().split(/\s+/)[0] || "";
   return (
     <div className="vr-pbl-head" data-wide="1">
-      <div className="vr-pbl-head-cam">
-        <ParticipantTile trackRef={hostTrack} />
-        <SignalBars participant={hostTrack.participant} />
-        {firstName && <span className="vr-pbl-head-name">{firstName}</span>}
-      </div>
+      {hostTrack && (
+        <div className="vr-pbl-head-cam">
+          <ParticipantTile trackRef={hostTrack} />
+          <SignalBars participant={hostTrack.participant} />
+          {firstName && <span className="vr-pbl-head-name">{firstName}</span>}
+        </div>
+      )}
+      {brief}
     </div>
   );
 }
 
-function PeoplePanel({ roomId, isStaff, inviteUrl, roster, moderators, controller, pinned, localIdentity, onSetRole }: {
+function PeoplePanel({ roomId, isStaff, inviteUrl, roster, moderators, controller, pinned, localIdentity, onSetRole, ocultarStaff }: {
+  /** No automático o facilitador não aparece na lista dos alunos. */
+  ocultarStaff?: boolean;
   roomId: string; isStaff: boolean; inviteUrl: string | null;
   roster?: any | null; moderators?: string[]; controller?: string | null; pinned?: string | null;
   localIdentity?: string; onSetRole?: (body: any) => void;
@@ -3099,7 +3692,7 @@ function PeoplePanel({ roomId, isStaff, inviteUrl, roster, moderators, controlle
       )}
       {isStaff && <LobbyPanel roomId={roomId} />}
       <div className="vr-people">
-        {participants.map((p) => {
+        {participants.filter((p) => !ocultarStaff || !(roster?.students || []).find((s: any) => s.identity === p.identity)?.is_staff).map((p) => {
           const nm = p.name || p.identity;
           const screenBlocked = !!blocked[p.identity]?.screen;
           return (

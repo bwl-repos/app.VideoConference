@@ -53,5 +53,24 @@ def e_resposta_de_risco(e) -> bool:
     return bool((bruto or {}).get("isDimension"))
 
 
+def respostas_de_risco(evs, desde_iso: str) -> int:
+    """Quantas perguntas DISTINTAS de risco o aluno respondeu nesta sessão.
+
+    `respondeu` diz só se houve alguma: basta para saber quem começou, não quem concluiu.
+    Distintas porque o aluno pode voltar e trocar uma resposta sem isso contar duas vezes.
+    """
+    vistas = set()
+    for e in evs or []:
+        if (e.get("createdAt") or "") < desde_iso or not e_resposta_de_risco(e):
+            continue
+        bruto = e.get("payload")
+        if isinstance(bruto, str):
+            bruto = json.loads(bruto)
+        chave = next((bruto[k] for k in ("lessonId", "question", "questionId", "questao", "id") if bruto.get(k) is not None),
+                     e.get("createdAt"))
+        vistas.add(str(chave))
+    return len(vistas)
+
+
 def e_avaliacao_de_pares(e) -> bool:
     return e.get("eventType") == "peer_evaluation_submitted"

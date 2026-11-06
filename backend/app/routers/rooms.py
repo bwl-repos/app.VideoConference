@@ -14,6 +14,7 @@ from ..services.recording_service import presigned_url
 from ..services.livekit_service import set_participant_sources, remove_participant, list_participant_identities
 from ..services import encontro as _encontro, voz as _voz, voz_porta as _voz_porta
 from ..tenancy import resolve_tenant_id, get_effective_limits, normalize_branding
+from ..services.cliente_http import cliente_http
 
 logger = logging.getLogger(__name__)
 
@@ -491,7 +492,7 @@ async def scorm_progress(room_id: str, user: CurrentUser = Depends(get_current_u
         if not emails_list:
             return {}, True
         try:
-            async with httpx.AsyncClient(timeout=20) as c:
+            async with cliente_http(timeout=20) as c:
                 resp = await c.get(f"{base}/interaction-events/by-students",
                                    params={"studentEmails": ",".join(emails_list),
                                            "limitPerStudent": 300})

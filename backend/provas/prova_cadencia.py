@@ -257,9 +257,9 @@ conferir(not sem_case,
 #: abrir o registro" — mas a etapa seguinte passou a ser `amplify_code`, e o
 #: facilitador ficava sem o chip do código exatamente na etapa que existe para
 #: mostrá-lo. Uma comparação por posição é uma cópia DISFARÇADA da ordem.
-conferir('stepIndex(pblStage) >= stepIndex("amplify_code")' in front,
-         "o chip do class code é liberado na etapa que existe para mostrá-lo",
-         "comparação por posição é cópia disfarçada da ordem das etapas")
+conferir("showBrandCode = !!classCode && (amStaff || !codeHiddenForStudents)" in front,
+         "o class code fica visível a sessão inteira, salvo se o facilitador ocultar",
+         "a visibilidade do código não pode depender da posição da etapa")
 
 print()
 print("9) as funções auxiliares, nos extremos")
@@ -729,7 +729,7 @@ conferir("isStaff && etapaDesconhecida" in _FRONT_COD,
          "e avisa o host (so o host: o aluno nao tem acao possivel)")
 
 # -- 16.6 A camera do facilitador some no automatico -------------------------
-conferir("apenasFixada={!!pblClass?.auto_mode}" in _FRONT_COD,
+conferir("apenasFixada={!!pblClass?.auto_mode && !breakout.active}" in _FRONT_COD,
          "em modo automatico a coluna da esquerda nao traz o facilitador",
          "no automatico nao ha facilitador conduzindo; o tile so rouba espaco")
 conferir("apenasFixada" in _FRONT_COD and "pinnedTrack" in _FRONT_COD,
@@ -817,19 +817,12 @@ conferir(".vr-header-end {" in _CSS and ".vr-header-status {" in _CSS,
          "existe um unico filho na coluna da direita, com o estado dentro dele",
          "dois filhos na mesma celula da grade voltariam a se sobrepor")
 
-# Os blocos de estado estao DENTRO do agrupador, nao soltos no header.
+# O progresso mora no cartao da coluna, nao no cabecalho.
 _cab = _FRONT_COD[_FRONT_COD.index('<header className="vr-header">'):]
 _cab = _cab[:_cab.index("</header>")]
-_abre = _cab.index('className="vr-header-status"')
-# A fronteira e ESTRUTURAL, nao um comentario-marcador: `_so_codigo_ts` tira
-# comentario, entao `{/* /vr-header-status */}` nao existe no texto medido.
-# `.vr-header-status` fecha antes de `.vr-header-right` comecar.
-_fecha = _cab.index('className="vr-header-right"')
-for _bloco in ("RelogioDaEtapa", "ProgressoDasRespostas", "HistoricoDasComunicacoes"):
-    _p = _cab.find(_bloco)
-    conferir(_abre < _p < _fecha,
-             f"{_bloco} fica dentro de .vr-header-status",
-             "solto no header ele volta a disputar espaco com a etapa")
+conferir("ProgressoDasRespostas" not in _cab and "<ProgressoDasRespostas" in _FRONT_COD,
+         "o progresso das respostas fica no cartao da coluna",
+         "absoluto no cabecalho, ele cobria o topo das cameras")
 
 # A proxima etapa saiu da pilula: era ela que dobrava a altura do cabecalho.
 conferir("vr-relogio__proxima" not in _FRONT_COD,

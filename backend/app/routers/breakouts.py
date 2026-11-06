@@ -174,17 +174,15 @@ async def assign_breakout(room_id: str, body: BreakoutAssign, user: CurrentUser 
     return {"ok": True}
 
 
-@router.post("/{room_id}/breakouts/open")
-async def open_breakouts(room_id: str, body: BreakoutOpen, user: CurrentUser = Depends(get_current_user)):
-    if not user.is_staff:
-        raise HTTPException(403)
+async def abrir_grupos(room_id: str, duration_seconds: int | None) -> dict:
+    """Abre os grupos. Fora do endpoint porque a cadência também abre, sem usuário."""
     room = await _room_or_404(room_id)
     n = await pool().fetchval("SELECT count(*) FROM video_breakout_groups WHERE parent_room_id=$1", room_id)
     if not n:
         raise HTTPException(400, "nenhum grupo configurado")
     ends_at = None
-    if body.duration_seconds and body.duration_seconds > 0:
-        ends_at = datetime.now(timezone.utc) + timedelta(seconds=int(body.duration_seconds))
+    if duration_seconds and duration_seconds > 0:
+        ends_at = datetime.now(timezone.utc) + timedelta(seconds=int(duration_seconds))
     await pool().execute(
         "UPDATE video_rooms SET breakout_open=true, breakout_ends_at=$2 WHERE id=$1", room_id, ends_at)
     room = await _room_or_404(room_id)
@@ -193,15 +191,26 @@ async def open_breakouts(room_id: str, body: BreakoutOpen, user: CurrentUser = D
     return state
 
 
+async def fechar_grupos(room_id: str) -> None:
+    await pool().execute(
+        "UPDATE video_rooms SET breakout_open=false, breakout_ends_at=NULL WHERE id=$1", room_id)
+    await hub.broadcast(room_id, "breakout-close", {"room_id": room_id})
+    await _broadcast_state(room_id)
+
+
+@router.post("/{room_id}/breakouts/open")
+async def open_breakouts(room_id: str, body: BreakoutOpen, user: CurrentUser = Depends(get_current_user)):
+    if not user.is_staff:
+        raise HTTPException(403)
+    return await abrir_grupos(room_id, body.duration_seconds)
+
+
 @router.post("/{room_id}/breakouts/close")
 async def close_breakouts(room_id: str, user: CurrentUser = Depends(get_current_user)):
     if not user.is_staff:
         raise HTTPException(403)
     await _room_or_404(room_id)
-    await pool().execute(
-        "UPDATE video_rooms SET breakout_open=false, breakout_ends_at=NULL WHERE id=$1", room_id)
-    await hub.broadcast(room_id, "breakout-close", {"room_id": room_id})
-    await _broadcast_state(room_id)
+    await fechar_grupos(room_id)
     return {"ok": True}
 
 

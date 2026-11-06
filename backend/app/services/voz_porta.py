@@ -16,6 +16,7 @@ from botocore.exceptions import ClientError
 from ..config import settings
 from . import encontro, voz
 from .recording_service import presigned_url, s3_client
+from .cliente_http import cliente_http
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +77,7 @@ async def sintetizar(texto: str, pedido: dict | None = None) -> bytes:
     não conhece os campos novos.
     """
     base = (settings.voz_core_url or "").strip().rstrip("/")
-    async with httpx.AsyncClient(timeout=TIMEOUT_S) as cliente:
+    async with cliente_http(timeout=TIMEOUT_S) as cliente:
         r = await cliente.post(
             f"{base}/api/voz/sintetizar",
             json={"texto": texto, **(pedido or {})},

@@ -84,6 +84,30 @@ export interface OpenPblRosterEntry {
   is_staff: boolean;
   in_package: boolean | null;   // null p/ staff (não se aplica)
   registered: boolean;
+  /** Passou pelo suporte? `null` = nunca precisou. */
+  suporte?: "suporte" | "resolvido" | "ouvinte" | null;
+  /** NF: terminou o prazo dos riscos sem responder nada. */
+  nao_fez_riscos?: boolean;
+  concluiu_riscos?: boolean;
+}
+
+export interface OpenPblLider {
+  fase: "voluntarios" | "votacao" | "definido";
+  ate: string | null;
+  identity: string | null;
+  voluntarios: string[];
+  candidatos: string[];
+  /** Só quem já votou. Em quem cada um votou o servidor não conta. */
+  votantes: string[];
+  /** Total de votos de cada candidato. */
+  contagem?: Record<string, number>;
+}
+
+export interface OpenPblSuporteMembro {
+  identity: string;
+  name: string;
+  status: "suporte" | "resolvido" | "ouvinte";
+  pediu_ajuda: string | null;
 }
 
 export interface OpenPblClass {
@@ -118,6 +142,11 @@ export interface OpenPblClass {
   vote_stage?: string | null;
   /** `{identidade: true|false}`, só de quem votou. Quem não vota conta "não". */
   votes?: Record<string, boolean>;
+  /** Pergunta da plenária em que a turma está, a partir de 0. */
+  questao_atual?: number;
+  /** Prazo final dos riscos: 5 min depois de 90% concluírem. */
+  riscos_prazo?: string | null;
+  lider?: OpenPblLider | null;
 }
 
 /**
@@ -410,6 +439,30 @@ export function createVideoRoomsSDK(opts: SDKOptions) {
         call<{ ok: boolean; avaliado: string; nota: number; destaque: number | null }>(
           `/api/rooms/${roomId}/openpbl/avaliar`,
           { method: "POST", body: JSON.stringify(body) }),
+      voluntariarLider: (roomId: string) =>
+        call<OpenPblClass>(`/api/rooms/${roomId}/openpbl/lider/voluntario`, { method: "POST" }),
+      votarLider: (roomId: string, candidato: string) =>
+        call<OpenPblClass>(`/api/rooms/${roomId}/openpbl/lider/voto`, {
+          method: "POST", body: JSON.stringify({ candidato }),
+        }),
+      /** Próxima (+1) ou anterior (-1) pergunta da plenária: líder geral ou quem conduz. */
+      mudarQuestao: (roomId: string, delta: number) =>
+        call<OpenPblClass>(`/api/rooms/${roomId}/openpbl/questao`, {
+          method: "POST", body: JSON.stringify({ delta }),
+        }),
+      /** Fecha o suporte (quem não resolveu vira ouvinte), divide a turma e abre os grupos. */
+      dividirGrupos: (roomId: string, duration_seconds: number) =>
+        call<unknown>(`/api/rooms/${roomId}/openpbl/dividir-grupos`, {
+          method: "POST", body: JSON.stringify({ duration_seconds }),
+        }),
+      suporte: (roomId: string) =>
+        call<{ membros: OpenPblSuporteMembro[] }>(`/api/rooms/${roomId}/openpbl/suporte`),
+      suporteToken: (roomId: string, identity: string, display_name?: string) =>
+        call<{ token: string; livekit_url: string; group_name: string }>(
+          `/api/rooms/${roomId}/openpbl/suporte/token`,
+          { method: "POST", body: JSON.stringify({ identity, display_name }) }),
+      pedirAjuda: (roomId: string) =>
+        call<{ ok: boolean }>(`/api/rooms/${roomId}/openpbl/suporte/ajuda`, { method: "POST" }),
       /** (Re)cria os breakouts a partir dos grupos montados pela API OpenPBL. */
       syncGroups: (roomId: string) =>
         call<{ ok: boolean; groups: number }>(`/api/rooms/${roomId}/openpbl/sync-groups`, { method: "POST" }),

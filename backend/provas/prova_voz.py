@@ -405,7 +405,7 @@ conferir('if (stage === "question") return rIntroQuestoes(r);' in FRONT
 conferir(FRONT.count("blocosDaEtapa(") == 3,
          "e tela e voz leem a MESMA lista de blocos (definição + os dois usos)",
          "duas listas divergem e a sala fala um texto enquanto mostra outro")
-conferir("const blocos = blocosDaEtapa(roteiro, stage);" in FRONT,
+conferir("blocosDaEtapa(roteiro, stage);" in FRONT,
          "a tela da etapa lê desse mapa")
 conferir('pblStage === "plenary" ? paresRelembrando' in FRONT,
          "o card único da plenária também é falado",

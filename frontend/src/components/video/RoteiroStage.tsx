@@ -18,6 +18,7 @@
  * facilitador e aluno renderizam exatamente a mesma tela — e, desde este módulo,
  * quem CONFIGURA o encontro vê a mesma coisa que eles vão ver.
  */
+import { useEffect, useMemo, useState } from "react";
 import type { OpenPblStage, RoteiroSnapshot, RoteiroBlocoFixo } from "../../lib/video-rooms-sdk";
 
 /** Campo de texto do roteiro (vazio se ausente). */
@@ -127,24 +128,83 @@ export function rIntroQuestoes(r: RoteiroSnapshot | null): RoteiroBlocoFixo[] {
   return rBlocos(r, "plenaria").slice(1);
 }
 
-/** Blocos de texto fixo de uma seção — o "corpo" da tela de cada etapa. */
-export function RoteiroBlocos({ blocos }: { blocos: RoteiroBlocoFixo[] }) {
+/** Milissegundos por caractere, e a pausa entre um trecho e o seguinte. */
+const MS_POR_LETRA = 14;
+const PAUSA_ENTRE_TRECHOS = 120;
+/** A digitação espera o cartão aparecer. */
+const ESPERA_DA_ENTRADA = 450;
+const tempoDeDigitar = (texto: string) => texto.length * MS_POR_LETRA + PAUSA_ENTRE_TRECHOS;
+
+/** Texto que aparece digitado. O resto da frase já está no fluxo, invisível: o cartão
+ *  nasce do tamanho final e nenhuma palavra muda de linha enquanto digita. A conta sai do
+ *  tempo decorrido, então uma aba em segundo plano só alcança o ponto certo ao voltar. */
+export function Digitando({ texto, atraso = 0 }: { texto: string; atraso?: number }) {
+  const direto = useMemo(() => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches, []);
+  const [n, setN] = useState(direto ? texto.length : 0);
+  useEffect(() => {
+    if (direto) { setN(texto.length); return; }
+    setN(0);
+    let quadro = 0;
+    let inicio: number | null = null;
+    const passo = (agora: number) => {
+      inicio ??= agora;
+      const letras = Math.floor((agora - inicio - atraso) / MS_POR_LETRA);
+      setN(Math.max(0, Math.min(texto.length, letras)));
+      if (letras < texto.length) quadro = requestAnimationFrame(passo);
+    };
+    quadro = requestAnimationFrame(passo);
+    return () => cancelAnimationFrame(quadro);
+  }, [texto, atraso, direto]);
+  const digitando = n > 0 && n < texto.length;
   return (
     <>
-      {blocos.map((b, i) => (
-        // `vr-pbl-intro` = instrução do sistema: mesmo cartão discreto usado acima das
-        // cascatas. O texto fixo situa a atividade; o destaque é do conteúdo variável.
-        <div className="vr-pbl-intro" key={i}>
-          {b.titulo && <strong>{b.titulo}</strong>}
-          {b.lista ? (
-            <ul className="vr-rot-bloco-ul">
-              {b.paragrafos.map((t, k) => <li key={k}>{t}</li>)}
-            </ul>
-          ) : (
-            b.paragrafos.map((t, k) => <p key={k}>{t}</p>)
-          )}
-        </div>
-      ))}
+      <span className="vr-dig-sr">{texto}</span>
+      <span aria-hidden="true">
+        {texto.slice(0, n)}
+        {digitando && <span className="vr-dig-cursor" />}
+        <span className="vr-dig-resto">{texto.slice(n)}</span>
+      </span>
+    </>
+  );
+}
+
+/** Quanto tempo os blocos levam para ser digitados: o que vem depois espera por eles. */
+const tempoDosBlocos = (blocos: RoteiroBlocoFixo[]) =>
+  blocos.reduce((soma, b) => soma + ESPERA_DA_ENTRADA + (b.titulo ? tempoDeDigitar(b.titulo) : 0)
+    + b.paragrafos.reduce((s, p) => s + tempoDeDigitar(p), 0), 0);
+
+/** Blocos de texto fixo de uma seção — o "corpo" da tela de cada etapa. */
+export function RoteiroBlocos({ blocos }: { blocos: RoteiroBlocoFixo[] }) {
+  // Um cartão só surge quando o anterior termina de ser digitado. O espaço dele já está
+  // reservado (a animação o mantém invisível até a vez dele), então nada pula.
+  let atraso = 0;
+  const proximo = (texto: string) => {
+    const a = atraso;
+    atraso += tempoDeDigitar(texto);
+    return a;
+  };
+  return (
+    <>
+      {blocos.map((b, i) => {
+        const entrada = atraso;
+        atraso += ESPERA_DA_ENTRADA;
+        return (
+          // `vr-pbl-intro` = instrução do sistema: mesmo cartão discreto usado acima das
+          // cascatas. O texto fixo situa a atividade; o destaque é do conteúdo variável.
+          // A chave leva o texto: cartão novo na etapa nova, e a entrada anima de novo.
+          <div className="vr-pbl-intro vr-surge" key={`${i}-${b.titulo ?? ""}-${b.paragrafos[0] ?? ""}`}
+            style={{ ["--vr-atraso" as any]: `${entrada}ms` }}>
+            {b.titulo && <strong><Digitando texto={b.titulo} atraso={proximo(b.titulo)} /></strong>}
+            {b.lista ? (
+              <ul className="vr-rot-bloco-ul">
+                {b.paragrafos.map((t, k) => <li key={k}><Digitando texto={t} atraso={proximo(t)} /></li>)}
+              </ul>
+            ) : (
+              b.paragrafos.map((t, k) => <p key={k}><Digitando texto={t} atraso={proximo(t)} /></p>)
+            )}
+          </div>
+        );
+      })}
     </>
   );
 }
@@ -152,8 +212,12 @@ export function RoteiroBlocos({ blocos }: { blocos: RoteiroBlocoFixo[] }) {
 /** Tela de uma etapa do roteiro: título da seção + textos fixos + o conteúdo
  *  variável que aquela etapa pede. As etapas com cascata (plenária e análise
  *  situacional) e o gráfico são tratados fora daqui. */
-export function RoteiroStage({ stage, roteiro, shown = 1 }: {
+export function RoteiroStage({ stage, roteiro, shown = 1, orientadoras: mostrarOrientadoras = false, dentroDoGrupo = false }: {
   stage: OpenPblStage; roteiro: RoteiroSnapshot | null;
+  /** Se as questões orientadoras já podem aparecer (ver `orientadorasVisiveis`). */
+  orientadoras?: boolean;
+  /** Dentro do grupo: as instruções de como dividir a turma já não servem para nada. */
+  dentroDoGrupo?: boolean;
   /** Quantos cards da cascata já foram revelados nesta etapa. */
   shown?: number;
 }) {
@@ -176,10 +240,10 @@ export function RoteiroStage({ stage, roteiro, shown = 1 }: {
     const direitos = rTexto(roteiro, "direitos");
     return (
       <div className="vr-rot vr-rot-abertura">
-        {marca && <div className="vr-rot-marca">{marca}</div>}
-        {serie && <div className="vr-rot-serie">{serie}</div>}
-        {titulo && <div className="vr-rot-titulo">{titulo}</div>}
-        {direitos && <div className="vr-rot-direitos">{direitos}</div>}
+        {marca && <div className="vr-rot-marca vr-surge" style={{ ["--vr-ordem" as any]: 0 }}>{marca}</div>}
+        {serie && <div className="vr-rot-serie vr-surge" style={{ ["--vr-ordem" as any]: 1 }}>{serie}</div>}
+        {titulo && <div className="vr-rot-titulo vr-surge" style={{ ["--vr-ordem" as any]: 2 }}><Digitando texto={titulo} atraso={350} /></div>}
+        {direitos && <div className="vr-rot-direitos vr-surge" style={{ ["--vr-ordem" as any]: 3 }}>{direitos}</div>}
       </div>
     );
   }
@@ -198,7 +262,7 @@ export function RoteiroStage({ stage, roteiro, shown = 1 }: {
 
   // Demais etapas: os blocos fixos da etapa (mapa único, ver `blocosDaEtapa` — a
   // MESMA lista que a voz lê).
-  const blocos = blocosDaEtapa(roteiro, stage);
+  const blocos = stage === "groups" && dentroDoGrupo ? [] : blocosDaEtapa(roteiro, stage);
 
   // Conteúdo variável por etapa.
   // Cascatas aparecem card a card, conforme o facilitador avança (`shown`).
@@ -206,8 +270,7 @@ export function RoteiroStage({ stage, roteiro, shown = 1 }: {
     ? [rTexto(roteiro, "sinopseParte1"), rTexto(roteiro, "sinopseParte2")].filter(Boolean)
     : [];
   const sinopse = sinopseTodas.slice(0, shown);
-  const orientadorasTodas = stage === "groups" ? rLista(roteiro, "questoesOrientadoras") : [];
-  const orientadoras = orientadorasTodas.slice(0, shown);
+  const orientadoras = stage === "groups" && mostrarOrientadoras ? rLista(roteiro, "questoesOrientadoras") : [];
   const relembrando = stage === "plenary" ? rTexto(roteiro, "relembrandoEpisodio") : "";
 
   return (
@@ -218,20 +281,25 @@ export function RoteiroStage({ stage, roteiro, shown = 1 }: {
       {relembrando && (
         // Mesmo cabeçalho das cascatas, para o conteúdo variável ficar identificado
         // como os demais (o card sozinho não dizia o que era).
-        <div className="vr-rot-bloco-var">
+        <div className="vr-rot-bloco-var vr-surge" key={relembrando}
+          style={{ ["--vr-atraso" as any]: `${tempoDosBlocos(blocos)}ms` }}>
           <div className="vr-pbl-qhead">
             <span className="vr-pbl-qhead-label">Relembrando o episódio</span>
           </div>
-          <div className="vr-rot-destaque">{relembrando}</div>
+          <div className="vr-rot-destaque">
+            <Digitando texto={relembrando} atraso={tempoDosBlocos(blocos) + ESPERA_DA_ENTRADA} />
+          </div>
         </div>
       )}
       {sinopse.length > 0 && (
         <QuestionCascade items={sinopse} total={sinopseTodas.length}
-          label="Revisitando a situação-problema" progress emphasize inline />
+          label="Revisitando a situação-problema" progress emphasize inline
+          atrasoInicial={tempoDosBlocos(blocos)} />
       )}
       {orientadoras.length > 0 && (
-        <QuestionCascade items={orientadoras} total={orientadorasTodas.length}
-          label="Questões orientadoras" progress emphasize inline />
+        // Todas nítidas: é o material da discussão do grupo, não uma sequência a seguir.
+        <QuestionCascade items={orientadoras} label="Questões orientadoras" inline sequencial
+          atrasoInicial={tempoDosBlocos(blocos)} />
       )}
     </div>
   );
@@ -242,7 +310,7 @@ export function RoteiroStage({ stage, roteiro, shown = 1 }: {
  *  MESMO componente (o aluno recebe a lista por dados), então a UI/animação fica num
  *  só lugar. `progress` mostra os passos (●) no cabeçalho e `emphasize` realça o card
  *  mais recente — ambos fazem sentido só na revelação progressiva (plenária). */
-export function QuestionCascade({ items, total, label, icon, progress = false, emphasize = false, inline = false, intro }: {
+export function QuestionCascade({ items, total, label, icon, progress = false, emphasize = false, inline = false, intro, atrasoInicial = 0, sequencial = false }: {
   items: string[];
   total?: number;
   label?: string;
@@ -253,15 +321,26 @@ export function QuestionCascade({ items, total, label, icon, progress = false, e
   inline?: boolean;
   /** Texto do roteiro que abre a etapa, acima dos cards. */
   intro?: RoteiroBlocoFixo[];
+  /** Espera antes de digitar o primeiro card: os textos fixos acima dele vêm antes. */
+  atrasoInicial?: number;
+  /** Todos os cards entram de uma vez na tela, um depois do outro: cada um surge quando o
+   *  anterior termina de digitar. Sem isto, só o último revelado digita. */
+  sequencial?: boolean;
   /** Texto do roteiro que ABRE a etapa, acima da cascata (a plenária usa a dinâmica
    *  das questões). Slot opcional — as questões em si não mudam. */
 }) {
   const count = items.length;
   const tot = Math.max(total ?? count, count, 1);
+  // Onde cada card começa, para o modo sequencial.
+  const entradas = items.reduce<number[]>((lista, q, i) => {
+    lista.push(i === 0 ? atrasoInicial : lista[i - 1] + ESPERA_DA_ENTRADA + tempoDeDigitar(items[i - 1]));
+    return lista;
+  }, []);
   return (
     <div className="vr-pbl-question" data-inline={inline ? "1" : undefined}>
       {label && (
-        <div className="vr-pbl-qhead">
+        <div className={atrasoInicial ? "vr-pbl-qhead vr-surge" : "vr-pbl-qhead"}
+          style={atrasoInicial ? { ["--vr-atraso" as any]: `${atrasoInicial}ms` } : undefined}>
           <span className="vr-pbl-qhead-label">
             {label}
           </span>
@@ -280,9 +359,17 @@ export function QuestionCascade({ items, total, label, icon, progress = false, e
       <div className="vr-pbl-qcascade" data-emphasize={emphasize ? "1" : undefined}
         data-qn={tot} style={{ ["--vr-qn" as any]: String(tot) }}>
         {items.map((q, i) => (
-          <div className="vr-pbl-qcard" key={i} data-latest={emphasize && i === count - 1 ? "1" : undefined}>
+          // A chave leva o texto: outra cascata traz cartões novos. Só o último digita;
+          // os já revelados não recomeçam a cada avanço.
+          <div className="vr-pbl-qcard" key={`${i}-${q}`} data-latest={emphasize && i === count - 1 ? "1" : undefined}
+            style={sequencial || (i === 0 && atrasoInicial)
+              ? { ["--vr-atraso" as any]: `${entradas[i]}ms` } : undefined}>
             <span className="vr-pbl-qcard-num">{i + 1}</span>
-            <span className="vr-pbl-qcard-text">{q}</span>
+            <span className="vr-pbl-qcard-text">
+              {sequencial
+                ? <Digitando texto={q} atraso={entradas[i] + ESPERA_DA_ENTRADA} />
+                : i === count - 1 ? <Digitando texto={q} atraso={(count === 1 ? atrasoInicial : 0) + ESPERA_DA_ENTRADA} /> : q}
+            </span>
           </div>
         ))}
       </div>

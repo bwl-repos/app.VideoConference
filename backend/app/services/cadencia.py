@@ -106,8 +106,16 @@ ORDEM: tuple[str, ...] = (
 #:
 #: A partir da situação-problema o voto volta a valer: aí sim o que está em jogo
 #: é se a turma terminou.
+#:
+#: `groups` entra pela mesma razão 1: com os grupos abertos a sala principal fica vazia,
+#: a apuração só enxerga a sala principal, e um voto ali nunca passaria.
+#: `release_risks` tem prazo próprio (5 min após 90% concluírem, com este limite): quem
+#: está respondendo o questionário não está olhando um voto na tela.
+#: `release_feedback` entra pela mesma razão: quem avalia os colegas está no pacote, e
+#: quem não vota conta como "não". O voto só estendia a etapa, sem nunca passar.
 AVANCA_SOZINHA: frozenset[str] = frozenset({
     "session_start", "registration_open", "amplify_code", "registration_close",
+    "groups", "release_risks", "release_feedback",
 })
 
 #: Quanto tempo a turma tem para responder "pode seguir?".
@@ -190,6 +198,8 @@ class Estado:
     voto_da_etapa: str | None = None
     #: `{identidade: True|False}`. Só de quem votou.
     votos: dict[str, bool] = field(default_factory=dict)
+    #: Prazo que encurta a etapa corrente (ver `release_risks`). Vencido, avança sem votar.
+    prazo: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -315,6 +325,11 @@ def decidir(estado: Estado, agora: datetime, presentes: list[str],
         return Decisao("estender",
                        porque="sem maioria (quem não votou conta como não)",
                        sim=sim, total=total)
+
+    if estado.prazo is not None and agora >= estado.prazo:
+        prox = proxima_etapa(estado.stage)
+        if prox is not None:
+            return Decisao("avancar", proxima=prox, porque="prazo da etapa vencido")
 
     # ── SEM VOTO: O TEMPO DA ETAPA ACABOU? ──────────────────────────────────
     duracao = params.duracoes.get(estado.stage)

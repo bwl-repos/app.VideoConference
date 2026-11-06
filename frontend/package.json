@@ -15,6 +15,7 @@
     "@livekit/egress-sdk": "^0.2.1",
     "gsap": "^3.15.0",
     "livekit-client": "^2.5.10",
+    "qrcode-generator": "1.4.4",
     "qrcode.react": "^3.1.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
