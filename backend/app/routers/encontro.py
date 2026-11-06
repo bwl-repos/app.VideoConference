@@ -47,11 +47,30 @@ router = APIRouter(prefix="/api/admin/encontro", tags=["admin:encontro"])
 TETO_DA_PREVIA = 1200
 
 
+#: Teto de falas num ensaio. A etapa mais longa do roteiro tem 4 blocos e 9
+#: parágrafos; 40 deixa folga larga para quem acrescentar texto, sem permitir
+#: que a rota vire um sintetizador em lote.
+TETO_DE_FALAS = 40
+
+
 class Previa(BaseModel):
     texto: str = Field(..., min_length=1, max_length=TETO_DA_PREVIA)
     provedor: str = "polly"
     voz: str = ""
     motor: str = ""
+
+
+class FalaDoEnsaio(BaseModel):
+    texto: str = Field(..., min_length=1, max_length=TETO_DA_PREVIA)
+    pausa_ms: int = 0
+
+
+class Ensaio(BaseModel):
+    #: Só para o log e para a resposta: quem decide o que se ouve são as falas.
+    etapa: str = ""
+    #: O que está NA TELA de quem configura, salvo ou não. É o ponto do ensaio:
+    #: ajustar uma palavra e a pausa e ouvir o resultado antes de gravar.
+    falas: list[FalaDoEnsaio] = Field(default_factory=list, max_length=TETO_DE_FALAS)
 
 
 @router.get("")
@@ -160,6 +179,49 @@ async def previa(corpo: Previa, _admin: dict = Depends(require_admin)):
     except Exception:   # noqa: BLE001
         logger.warning("[encontro] previa sintetizada mas nao guardada: %s", alvo)
     return Response(content=mp3, media_type="audio/mpeg", headers={"X-Voz-Cache": "miss"})
+
+
+@router.post("/ensaio")
+async def ensaio(corpo: Ensaio, _admin: dict = Depends(require_admin)):
+    """As falas de uma etapa, na ordem, prontas para tocar.
+
+    É o ENSAIO da etapa: quem configura ouve a sequência inteira, com as pausas,
+    como a turma vai ouvir. Ajustar o ritmo de uma leitura sem ouvi-la é
+    adivinhar — e o erro só apareceria com a turma na sala.
+
+    O que esta rota NÃO faz é sintetizar de um jeito próprio: ela pede o MESMO
+    objeto que a sala pediria — mesma chave (`voz.chave(texto, perfil)`), mesmo
+    perfil de voz, mesmo bucket. Uma segunda implementação de síntese aqui faria
+    o ensaio soar diferente da aula, que é o único jeito de este recurso ser
+    pior que não existir.
+
+    Efeito colateral deliberado: o que for sintetizado para o ensaio fica no
+    bucket e serve a sala depois. Ensaiar adianta o aquecimento.
+    """
+    falas = [f for f in corpo.falas if f.texto.strip()]
+    if not falas:
+        return {"falas": [], "voz": encontro.atuais()["voz"], "desligado": 0}
+    if not voz_porta.configurado():
+        # Sem voz configurada o ensaio ainda serve para LER a etapa na ordem —
+        # devolve as falas sem URL em vez de 503. A tela mostra o texto e diz
+        # que não há áudio, que é o mesmo que a sala faz.
+        return {"falas": [{"texto": f.texto, "pausa_ms": f.pausa_ms, "url": ""}
+                          for f in falas],
+                "voz": encontro.atuais()["voz"], "desligado": 1}
+
+    contas = await voz_porta.garantir_textos([f.texto for f in falas])
+    config = await encontro.carregar()
+    perfil = encontro.perfil_da_voz(config)
+    saida = []
+    for f in falas:
+        try:
+            url = voz_porta.assinar(voz.chave(voz.normalizar(f.texto), perfil))
+        except Exception:   # noqa: BLE001
+            url = ""        # voz indisponível não pode quebrar o ensaio
+        saida.append({"texto": f.texto, "pausa_ms": f.pausa_ms, "url": url})
+    logger.info("[encontro] ensaio da etapa %s: %s falas %s",
+                corpo.etapa or "?", len(saida), contas)
+    return {"falas": saida, "voz": config["voz"], **contas}
 
 
 @router.post("/aquecer")

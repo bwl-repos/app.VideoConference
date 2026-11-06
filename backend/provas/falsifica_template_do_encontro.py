@@ -32,6 +32,7 @@ CADENCIA = RAIZ / "app/services/cadencia.py"
 ROTA = RAIZ / "app/routers/encontro.py"
 ROOMS = RAIZ / "app/routers/rooms.py"
 FRONT = RAIZ.parent / "frontend/src/components/video/VideoRoom.tsx"
+TELA = RAIZ.parent / "frontend/src/admin/EncontroPage.tsx"
 SDK = RAIZ.parent / "frontend/src/lib/video-rooms-sdk.ts"
 
 #: (rotulo, arquivo, trecho original, trecho estragado)
@@ -213,6 +214,54 @@ ESTRAGOS = [
      '    por_chave = {s["key"]: s for s in c["secoes"]}\n',
      '    por_chave = {s["key"]: s for s in c["secoes"]}\n'
      '    roteiro["campos"] = {}\n'),
+
+    # ── 6b. O ENSAIO DEIXA DE SER O QUE A AULA VAI OUVIR ────────────────────
+    ("o ensaio assina com outro perfil (soa diferente da aula)",
+     ROTA,
+     "            url = voz_porta.assinar(voz.chave(voz.normalizar(f.texto), perfil))",
+     '            url = voz_porta.assinar(voz.chave(voz.normalizar(f.texto), ""))'),
+
+    ("o ensaio ganha um caminho proprio de sintese",
+     ROTA,
+     "    contas = await voz_porta.garantir_textos([f.texto for f in falas])\n",
+     "    contas = {}\n"),
+
+    ("sem voz configurada o ensaio passa a recusar com erro",
+     ROTA,
+     "    if not voz_porta.configurado():\n"
+     "        # Sem voz configurada o ensaio ainda serve para LER a etapa na ordem —",
+     "    if False:\n"
+     "        # Sem voz configurada o ensaio ainda serve para LER a etapa na ordem —"),
+
+    ("o ensaio espera a pausa de uma fala que nao tocou",
+     TELA,
+     "      const ms = honrarPausa ? fala.pausa_ms : 0;",
+     "      const ms = fala.pausa_ms;"),
+
+    ("trocar de etapa deixa o ensaio anterior tocando por cima",
+     TELA,
+     '  useEffect(() => { parar(); setFalas([]); setErro(""); }, [etapa.id]);\n',
+     ""),
+
+    # ── 6c. A EDICAO ESCREVE NO BLOCO ERRADO ────────────────────────────────
+    #
+    # A plenaria mostra `[0]` e as questoes mostram `[1..]`. Pelo indice da
+    # FATIA, mexer no 1o bloco visivel de "Questoes" grava no bloco da plenaria:
+    # o texto muda na etapa errada, e nada acusa.
+    ("a tela passa a editar pelo indice da FATIA, nao o da secao",
+     TELA,
+     "  const todos = secao.blocos.map((bloco, i) => ({ bloco, i }));",
+     "  const todos = secao.blocos.map((bloco) => ({ bloco, i: 0 }));"),
+
+    ("a tela deixa de avisar que o texto e compartilhado",
+     TELA,
+     "  const irmas = etapas.filter(\n",
+     "  const irmas = [].filter(\n"),
+
+    ("o preview para de respeitar `lista` (promete tela que a aula nao mostra)",
+     TELA,
+     "              ? <ul>{b.paragrafos.map((t, k) => <li key={k}>{t || <em>(vazio)</em>}</li>)}</ul>",
+     "              ? b.paragrafos.map((t, k) => <p key={k}>{t}</p>)"),
 
     # ── 7. QUEM PODE CONFIGURAR ─────────────────────────────────────────────
     ("a previa da voz fica aberta a quem tiver a URL",

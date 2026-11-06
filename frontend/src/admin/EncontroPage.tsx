@@ -1,33 +1,40 @@
 /**
  * Encontro — as etapas, os temporizadores, o que a sala FALA e com que voz.
  *
- * Até esta tela existir, as três coisas eram constante de código em três
- * repositórios: a duração em `cadencia.py`, o texto fixo no `schema.ts` do
- * CustomerApp, a voz no `routers/voz.py` do CoreService. Ajustar o ritmo de um
- * encontro pedia um deploy; trocar a voz, outro.
+ * ## A organização, e por que ela mudou
  *
- * O que a tela mostra, e por que nesta ordem:
+ * A primeira versão desta tela empilhava quatro painéis: voz, ritmo, a tabela
+ * das etapas e, no fim, os textos agrupados por SEÇÃO. Funcionava e era difícil
+ * de usar pela mesma razão: **o texto ficava longe da etapa em que ele aparece**.
+ * Para saber o que a sala diz na "Análise situacional" era preciso ler a tabela,
+ * descobrir a seção, rolar até ela e cruzar na cabeça.
  *
- *  1. **A voz** — é a decisão que muda o encontro inteiro, e é a única com
- *     prévia: ninguém deveria trocar a voz de todos os encontros sem ouvir.
- *  2. **O ritmo do voto** — três números que valem para todas as etapas.
- *  3. **As etapas** — a ordem do encontro, com a duração de cada uma, se a
- *     turma vota para sair dela, e QUAIS LUGARES do roteiro aparecem nela.
- *  4. **Os textos** — por seção, com a pausa depois de cada parágrafo.
+ * Agora a unidade é a ETAPA: lista à esquerda, e à direita tudo que diz respeito
+ * a ela — quanto dura, o que o ▶ faz, o texto que ela mostra e fala (editável
+ * ali mesmo), onde entra cada informação do roteiro, e o **ensaio**: tocar a
+ * etapa inteira, com as pausas, como a turma vai ouvir.
  *
- * ## O que esta tela NÃO mostra
+ * Voz e ritmo do voto saíram para abas próprias: são três números e uma escolha
+ * que valem para TODAS as etapas, e deixá-los no topo empurrava para baixo
+ * justamente o que se vem ajustar.
  *
- * O conteúdo do episódio. "Questão 1, 2, 3" é o LUGAR onde a questão entra; a
- * questão em si é preenchida pelo curador no CustomerApp e muda a cada semana.
- * Mostrá-la aqui faria esta tela parecer editável quando não é — e daria duas
- * telas para a mesma informação.
+ * ## Uma seção pode servir a mais de uma etapa
  *
- * ## A ordem das etapas não está escrita aqui
+ * Três etapas compartilham a seção de abertura, e a plenária é repartida entre
+ * duas. Editar "o texto da etapa" é, de fato, editar a SEÇÃO — e a tela diz
+ * isso, nomeando as outras etapas afetadas. Esconder esse fato faria alguém
+ * ajustar uma instrução de presença e mudar, sem saber, o que a sala diz em
+ * outras duas etapas.
  *
- * Ela vem do servidor (`GET /api/admin/encontro`), que a deriva de
- * `cadencia.ORDEM`. Escrevê-la neste arquivo criaria a QUARTA cópia da lista de
- * etapas — e a terceira já custou uma produção com a tela mentindo sobre onde o
- * encontro estava (ver `provas/prova_cadencia.py`).
+ * ## O preview é ESTRUTURAL, não uma cópia da tela da sala
+ *
+ * Ele mostra o que entra na etapa — blocos fixos na ordem, lugares do roteiro —
+ * com a mesma regra de renderização da sala (título em negrito, `lista` vira
+ * marcadores), mas **não** reproduz o layout da videoconferência. Reproduzir
+ * seria manter uma segunda implementação da tela da sala, que divergiria no
+ * primeiro ajuste de CSS e passaria a prometer uma tela que não existe. O que
+ * precisa ser fiel é o CONTEÚDO e a ORDEM; e o que é fiel de verdade, porque
+ * toca o mesmo arquivo que a aula vai tocar, é o ensaio da voz.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { adminApi, adminFetch } from "./adminApi";
@@ -65,6 +72,9 @@ interface VozDoCatalogo {
   id: string; rotulo: string; nota?: string; genero?: string; motores?: string[];
 }
 interface Provedor { id: string; rotulo: string; nota?: string; vozes: VozDoCatalogo[] }
+interface Fala { texto: string; pausa_ms: number; url: string }
+
+type Aba = "etapas" | "voz" | "ritmo";
 
 /** Segundos em algo que se lê: "10 min", "7 min 30 s", "30 s". */
 function dur(s: number | null | undefined): string {
@@ -83,6 +93,22 @@ function total(c: Config): string {
   return h ? `${h} h ${m} min` : `${m} min`;
 }
 
+/** Os blocos que ESTA etapa mostra, dentro da seção dela.
+ *
+ *  A repartição (`todos` / `primeiro` / `demais`) vem do servidor, que a deriva
+ *  do mesmo catálogo que a sala usa — a tela não a reinventa. Devolve também o
+ *  ÍNDICE de cada bloco dentro da seção, que é o que permite editar no lugar
+ *  certo sem recalcular a fatia de novo na hora de gravar. */
+function blocosDaEtapa(cfg: Config, etapa: Etapa): Array<{ bloco: Bloco; i: number }> {
+  if (!etapa.secao) return [];
+  const secao = cfg.secoes.find((s) => s.key === etapa.secao);
+  if (!secao) return [];
+  const todos = secao.blocos.map((bloco, i) => ({ bloco, i }));
+  if (etapa.blocos === "primeiro") return todos.slice(0, 1);
+  if (etapa.blocos === "demais") return todos.slice(1);
+  return todos;
+}
+
 export default function EncontroPage() {
   const [dados, setDados] = useState<Dados | null>(null);
   const [cfg, setCfg] = useState<Config | null>(null);
@@ -91,13 +117,17 @@ export default function EncontroPage() {
   const [erro, setErro] = useState<string | null>(null);
   const [recado, setRecado] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
+  const [aba, setAba] = useState<Aba>("etapas");
+  const [etapaAberta, setEtapaAberta] = useState<string>("");
 
-  const carregar = () =>
+  useEffect(() => {
     adminApi<Dados>("/encontro")
-      .then((d) => { setDados(d); setCfg(d.config); })
+      .then((d) => {
+        setDados(d); setCfg(d.config);
+        setEtapaAberta((e) => e || d.etapas[0]?.id || "");
+      })
       .catch((e) => setErro(String(e.message || e)));
-
-  useEffect(() => { carregar(); }, []);
+  }, []);
   useEffect(() => {
     adminApi<{ provedores?: Provedor[]; erro?: string; avisoElevenLabs?: string }>("/encontro/vozes")
       .then((r) => {
@@ -126,8 +156,8 @@ export default function EncontroPage() {
       // operou acreditar num valor que o encontro não cumpre.
       setDados((d) => (d ? { ...d, config: r.config, etapas: r.etapas } : d));
       setCfg(r.config);
-      setRecado("Configuração salva. Vale para as salas criadas de agora em diante — "
-        + "os temporizadores e a voz valem também para as salas já abertas.");
+      setRecado("Configuração salva. Os tempos e a voz já valem, inclusive para salas "
+        + "abertas; o texto entra nas salas criadas de agora em diante.");
     } catch (e: any) {
       setErro(String(e.message || e));
     } finally {
@@ -136,17 +166,26 @@ export default function EncontroPage() {
   };
 
   // Os painéis recebem um setter que NUNCA vê `null`: a tela só os desenha com
-  // a configuração carregada, e tipar cada um deles com `Config | null` faria
-  // cada `onChange` repetir a mesma guarda inútil.
+  // a configuração carregada, e tipar cada um com `Config | null` faria cada
+  // `onChange` repetir a mesma guarda inútil.
   const alterar = (f: (c: Config) => Config) => setCfg((c) => (c ? f(c) : c));
 
   if (erro && !dados) return <div className="ad-err">Falha ao carregar: {erro}</div>;
   if (!dados || !cfg) return <div className="ad-muted">Carregando…</div>;
 
+  const etapa = dados.etapas.find((e) => e.id === etapaAberta) || dados.etapas[0];
+
   return (
     <div className="enc">
       <div className="ad-head-row">
-        <h2 className="ad-h">Encontro · facilitação automática</h2>
+        <div>
+          <h2 className="ad-h">Encontro · facilitação automática</h2>
+          <div className="ad-muted enc-nota">
+            {dados.etapas.length} etapas · {total(cfg)} de relógio ·
+            voz {cfg.voz.rotulo || cfg.voz.voz} ·
+            avança com mais de {Math.round(cfg.limiar * 100)}% dos presentes
+          </div>
+        </div>
         <div className="enc-acoes">
           {sujo && <span className="ad-muted">alterações não salvas</span>}
           <button className="ad-btn-outline" disabled={!sujo}
@@ -156,13 +195,6 @@ export default function EncontroPage() {
           </button>
         </div>
       </div>
-
-      <p className="ad-muted enc-intro">
-        O encontro inteiro soma <strong>{total(cfg)}</strong> de etapas, mais o que a
-        turma demorar a votar. Quando o tempo de uma etapa esgota, a sala pergunta
-        “podemos seguir?” e avança se mais de {Math.round(cfg.limiar * 100)}% dos
-        presentes disser que sim — <strong>quem não vota conta como “não”</strong>.
-      </p>
 
       {!dados.persistente && (
         <div className="enc-aviso" data-lvl="crit">
@@ -174,26 +206,414 @@ export default function EncontroPage() {
       {!dados.voz_configurada && (
         <div className="enc-aviso" data-lvl="warn">
           Voz desligada neste serviço (falta <code>VOZ_CORE_URL</code>/<code>VOZ_CORE_TOKEN</code>).
-          A sala mostra os textos e segue sem falar — e a prévia aqui não funciona.
+          A sala mostra os textos e segue sem falar — e o ensaio aqui fica sem áudio.
         </div>
       )}
       {erro && <div className="ad-err">{erro}</div>}
       {recado && <div className="enc-aviso" data-lvl="ok">{recado}</div>}
 
-      <PainelDaVoz cfg={cfg} setCfg={alterar} provedores={provedores} aviso={avisoVoz}
-        ligada={dados.voz_configurada} />
+      <div className="enc-abas">
+        <button data-active={aba === "etapas"} onClick={() => setAba("etapas")}>
+          Etapas e textos
+        </button>
+        <button data-active={aba === "voz"} onClick={() => setAba("voz")}>
+          A voz
+        </button>
+        <button data-active={aba === "ritmo"} onClick={() => setAba("ritmo")}>
+          O voto da turma
+        </button>
+      </div>
 
-      <PainelDoRitmo cfg={cfg} setCfg={alterar} limites={dados.limites} />
-
-      <PainelDasEtapas cfg={cfg} setCfg={alterar} etapas={dados.etapas}
-        padrao={dados.base} avancaSozinha={dados.avanca_sozinha} />
-
-      <PainelDosTextos cfg={cfg} setCfg={alterar} dados={dados} />
+      {aba === "etapas" && (
+        <div className="enc-mestre">
+          <ListaDeEtapas etapas={dados.etapas} cfg={cfg} aberta={etapa?.id || ""}
+            avancaSozinha={dados.avanca_sozinha} onAbrir={setEtapaAberta} />
+          {etapa && (
+            <DetalheDaEtapa etapa={etapa} etapas={dados.etapas} cfg={cfg} setCfg={alterar}
+              padrao={dados.base} avancaSozinha={dados.avanca_sozinha}
+              vozLigada={dados.voz_configurada} />
+          )}
+        </div>
+      )}
+      {aba === "voz" && (
+        <PainelDaVoz cfg={cfg} setCfg={alterar} provedores={provedores} aviso={avisoVoz}
+          ligada={dados.voz_configurada} />
+      )}
+      {aba === "ritmo" && (
+        <PainelDoRitmo cfg={cfg} setCfg={alterar} limites={dados.limites} />
+      )}
     </div>
   );
 }
 
-/* ---------------- 1. A voz ---------------- */
+/* ---------------- A lista (mestre) ---------------- */
+
+function ListaDeEtapas({ etapas, cfg, aberta, avancaSozinha, onAbrir }: {
+  etapas: Etapa[]; cfg: Config; aberta: string; avancaSozinha: string[];
+  onAbrir: (id: string) => void;
+}) {
+  return (
+    <nav className="enc-lista" aria-label="Etapas do encontro">
+      {etapas.map((e, i) => {
+        const d = cfg.duracoes[e.id];
+        const falas = e.secao
+          ? blocosDaEtapa(cfg, e).reduce((n, b) => n + b.bloco.paragrafos.length, 0)
+          : 0;
+        return (
+          <button key={e.id} className="enc-item" data-aberta={e.id === aberta}
+            onClick={() => onAbrir(e.id)}>
+            <span className="enc-item-n">{i + 1}</span>
+            <span className="enc-item-txt">
+              <strong>{e.acao}</strong>
+              <span className="ad-muted">{e.titulo}</span>
+            </span>
+            <span className="enc-item-meta">
+              <span className="enc-item-dur">{dur(d)}</span>
+              {falas > 0 && <span className="ad-muted" title={`${falas} parágrafos falados`}>
+                🔊 {falas}
+              </span>}
+              {d !== null && avancaSozinha.includes(e.id) && (
+                <span className="ad-muted" title="Avança sem perguntar à turma">⏩</span>
+              )}
+            </span>
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+/* ---------------- O detalhe ---------------- */
+
+function DetalheDaEtapa({ etapa, etapas, cfg, setCfg, padrao, avancaSozinha, vozLigada }: {
+  etapa: Etapa; etapas: Etapa[]; cfg: Config; setCfg: (f: (c: Config) => Config) => void;
+  padrao: Config; avancaSozinha: string[]; vozLigada: boolean;
+}) {
+  const blocos = blocosDaEtapa(cfg, etapa);
+  const valor = cfg.duracoes[etapa.id];
+  const dePadrao = padrao.duracoes[etapa.id];
+  const sozinha = avancaSozinha.includes(etapa.id);
+
+  // As OUTRAS etapas que mostram o mesmo texto. Editar aqui muda lá, e esconder
+  // isso faria alguém ajustar a instrução de presença sem saber que mudou o que
+  // a sala diz em mais duas etapas.
+  const irmas = etapas.filter(
+    (e) => e.id !== etapa.id && e.secao === etapa.secao && e.blocos === etapa.blocos);
+
+  // Edita um bloco pelo índice DELE DENTRO DA SEÇÃO — e não dentro da fatia que
+  // esta etapa mostra. A plenária mostra `[0]` e as questões mostram `[1..]`:
+  // gravar pelo índice da fatia escreveria no bloco errado em uma das duas.
+  const mexer = (i: number, f: (b: Bloco) => Bloco) =>
+    setCfg((c) => ({
+      ...c,
+      secoes: c.secoes.map((s) => s.key !== etapa.secao ? s : {
+        ...s, blocos: s.blocos.map((b, j) => (j === i ? f(b) : b)),
+      }),
+    }));
+
+  return (
+    <section className="enc-detalhe">
+      <header className="enc-detalhe-h">
+        <div>
+          <h3 className="ad-h">{etapa.acao}</h3>
+          <div className="ad-muted enc-nota">
+            Fase: {etapa.titulo} · <code>{etapa.id}</code>
+          </div>
+        </div>
+        <EnsaioDaEtapa etapa={etapa} blocos={blocos.map((b) => b.bloco)} ligada={vozLigada} />
+      </header>
+
+      <div className="enc-cartoes">
+        <div className="ad-card">
+          <div className="ad-card-l">Duração</div>
+          {valor === null ? (
+            <div className="ad-card-v enc-card-v">—</div>
+          ) : (
+            <>
+              <div className="enc-dur">
+                <input className="ad-input" type="number" value={valor} min={10} max={7200}
+                  onChange={(ev) => setCfg((c) => ({
+                    ...c, duracoes: { ...c.duracoes, [etapa.id]: Number(ev.target.value || 0) },
+                  }))} />
+                <span className="ad-muted">{dur(valor)}</span>
+              </div>
+              {valor !== dePadrao && (
+                <button className="ad-link" onClick={() => setCfg((c) => ({
+                  ...c, duracoes: { ...c.duracoes, [etapa.id]: dePadrao },
+                }))}>↺ voltar ao padrão ({dur(dePadrao)})</button>
+              )}
+            </>
+          )}
+        </div>
+        <div className="ad-card">
+          <div className="ad-card-l">Quando o tempo acaba</div>
+          <div className="enc-card-v">
+            {valor === null
+              ? <span className="ad-muted">etapa final, sem relógio</span>
+              : sozinha
+                ? <><span className="ad-pill" data-ok="false">avança sozinha</span>
+                    <span className="ad-muted enc-nota">
+                      Numa sala que ainda está enchendo não há a quem perguntar.
+                    </span></>
+                : <><span className="ad-pill">pergunta à turma</span>
+                    <span className="ad-muted enc-nota">
+                      {cfg.janela_voto_s}s para responder; avança com mais de{" "}
+                      {Math.round(cfg.limiar * 100)}% dos presentes.
+                    </span></>}
+          </div>
+        </div>
+        <div className="ad-card">
+          <div className="ad-card-l">Do roteiro do episódio</div>
+          {etapa.campos.length ? (
+            <div className="enc-chips">
+              {etapa.campos.map((c) => <Lugares key={c.name} campo={c} />)}
+            </div>
+          ) : <div className="enc-card-v"><span className="ad-muted">nada nesta etapa</span></div>}
+        </div>
+      </div>
+
+      <div className="enc-dois">
+        <div>
+          <h4 className="enc-sub">O que a sala fala e mostra</h4>
+          {etapa.secao ? (
+            <>
+              <p className="ad-muted enc-nota">
+                Seção <strong>{etapa.secao_titulo}</strong>
+                {etapa.blocos !== "todos" && (etapa.blocos === "primeiro"
+                  ? " (só o 1º bloco)" : " (do 2º bloco em diante)")}
+                {irmas.length > 0 && (
+                  <> · este texto também aparece em{" "}
+                    <strong>{irmas.map((e) => e.acao).join(", ")}</strong></>
+                )}
+              </p>
+              {blocos.length === 0 && (
+                <p className="ad-muted enc-nota">
+                  Sem texto fixo — esta etapa mostra só conteúdo do episódio.
+                </p>
+              )}
+              {blocos.map(({ bloco, i }) => (
+                <div className="enc-bloco" key={i}>
+                  <div className="enc-bloco-h">
+                    <input className="ad-input" placeholder="Título do bloco (opcional)"
+                      value={bloco.titulo}
+                      onChange={(e) => mexer(i, (b) => ({ ...b, titulo: e.target.value }))} />
+                    <label className="ad-check" title="Desenha os parágrafos como lista com marcador">
+                      <input type="checkbox" checked={bloco.lista}
+                        onChange={(e) => mexer(i, (b) => ({ ...b, lista: e.target.checked }))} />
+                      lista
+                    </label>
+                    <button className="ad-link ad-danger" title="Remove o bloco inteiro"
+                      onClick={() => setCfg((c) => ({
+                        ...c,
+                        secoes: c.secoes.map((s) => s.key !== etapa.secao ? s : {
+                          ...s, blocos: s.blocos.filter((_, j) => j !== i),
+                        }),
+                      }))}>remover bloco</button>
+                  </div>
+                  {bloco.paragrafos.map((p, pi) => (
+                    <div className="enc-par" key={pi}>
+                      <textarea className="ad-input" rows={2} value={p}
+                        onChange={(e) => mexer(i, (b) => ({
+                          ...b, paragrafos: b.paragrafos.map((x, k) => (k === pi ? e.target.value : x)),
+                        }))} />
+                      <label className="ad-field enc-pausa">
+                        pausa (ms)
+                        <input className="ad-input" type="number" min={0} max={30000} step={100}
+                          value={bloco.pausas[pi] ?? 0}
+                          onChange={(e) => mexer(i, (b) => ({
+                            ...b,
+                            pausas: b.paragrafos.map((_, k) =>
+                              k === pi ? Number(e.target.value || 0) : (b.pausas[k] ?? 0)),
+                          }))} />
+                      </label>
+                      <button className="ad-link ad-danger" title="Remove este parágrafo"
+                        onClick={() => mexer(i, (b) => ({
+                          ...b,
+                          paragrafos: b.paragrafos.filter((_, k) => k !== pi),
+                          // A pausa sai COM o parágrafo: as duas listas são
+                          // alinhadas por índice, e remover só o texto faria a
+                          // sala calar no lugar errado a partir daqui.
+                          pausas: b.pausas.filter((_, k) => k !== pi),
+                        }))}>✕</button>
+                    </div>
+                  ))}
+                  <button className="ad-link"
+                    onClick={() => mexer(i, (b) => ({
+                      ...b, paragrafos: [...b.paragrafos, ""], pausas: [...b.pausas, 0],
+                    }))}>+ parágrafo</button>
+                </div>
+              ))}
+              {etapa.blocos !== "demais" && (
+                <button className="ad-btn-outline"
+                  onClick={() => setCfg((c) => ({
+                    ...c,
+                    secoes: c.secoes.map((s) => s.key !== etapa.secao ? s : {
+                      ...s,
+                      blocos: [...s.blocos,
+                               { titulo: "", lista: false, paragrafos: [""], pausas: [0] }],
+                    }),
+                  }))}>+ bloco</button>
+              )}
+            </>
+          ) : (
+            <p className="ad-muted enc-nota">
+              Esta etapa não tem texto fixo: a tela dela é o gráfico ou a vinheta da série,
+              e a sala não fala nada ao abri-la.
+            </p>
+          )}
+        </div>
+
+        <div>
+          <h4 className="enc-sub">Como entra na tela</h4>
+          <PreviewDaEtapa etapa={etapa} blocos={blocos.map((b) => b.bloco)} />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ---------------- O preview ---------------- */
+
+/** O que entra na tela desta etapa, na ordem.
+ *
+ *  Mesma regra de renderização da sala (`RoteiroBlocos` no VideoRoom): título em
+ *  negrito, `lista` vira marcadores, parágrafos viram parágrafos. O que NÃO se
+ *  copia é o layout da videoconferência — ver o cabeçalho deste arquivo. */
+function PreviewDaEtapa({ etapa, blocos }: { etapa: Etapa; blocos: Bloco[] }) {
+  const vazio = blocos.length === 0 && etapa.campos.length === 0;
+  return (
+    <div className="enc-preview">
+      <div className="enc-preview-topo">
+        <span>{etapa.titulo}</span>
+        <span className="ad-muted">{dur(etapa.duracao_s)}</span>
+      </div>
+      <div className="enc-preview-corpo">
+        {vazio && <p className="ad-muted">Sem texto e sem campos do roteiro nesta etapa.</p>}
+        {blocos.map((b, i) => (
+          <div className="enc-preview-bloco" key={i}>
+            {b.titulo && <strong>{b.titulo}</strong>}
+            {b.lista
+              ? <ul>{b.paragrafos.map((t, k) => <li key={k}>{t || <em>(vazio)</em>}</li>)}</ul>
+              : b.paragrafos.map((t, k) => <p key={k}>{t || <em>(vazio)</em>}</p>)}
+          </div>
+        ))}
+        {etapa.campos.map((c) => (
+          <div className="enc-preview-slot" key={c.name}>
+            <span>{c.label}</span>
+            {(c.itensPrevistos || 0) > 1 && (
+              <em>{Array.from({ length: c.itensPrevistos! },
+                (_, i) => `${c.rotuloItem || "item"} ${i + 1}`).join(" · ")}</em>
+            )}
+            <small>conteúdo do episódio, preenchido no roteiro</small>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- O ensaio (a voz) ---------------- */
+
+/** Toca a etapa inteira, com as pausas, como a turma vai ouvir.
+ *
+ *  Ensaia o que está NA TELA, salvo ou não: é o ponto — ajustar uma palavra e a
+ *  pausa e ouvir antes de gravar. O servidor sintetiza o que faltar e devolve a
+ *  URL do MESMO objeto que a sala tocaria (mesma chave, mesmo perfil de voz),
+ *  então o que se ouve aqui é o que a aula vai ouvir. */
+function EnsaioDaEtapa({ etapa, blocos, ligada }: {
+  etapa: Etapa; blocos: Bloco[]; ligada: boolean;
+}) {
+  const [carregando, setCarregando] = useState(false);
+  const [tocando, setTocando] = useState(-1);
+  const [falas, setFalas] = useState<Fala[]>([]);
+  const [erro, setErro] = useState("");
+  const audio = useRef<HTMLAudioElement | null>(null);
+  const timer = useRef<number | undefined>(undefined);
+  const vivo = useRef(false);
+
+  const parar = () => {
+    vivo.current = false;
+    if (timer.current !== undefined) window.clearTimeout(timer.current);
+    audio.current?.pause();
+    setTocando(-1);
+  };
+
+  // Parar ao trocar de etapa ou sair da tela: sem isto, a fala da etapa
+  // anterior continua tocando por cima da que está sendo configurada agora.
+  useEffect(() => { parar(); setFalas([]); setErro(""); }, [etapa.id]);
+  useEffect(() => () => parar(), []);
+
+  const tocar = (lista: Fala[], i: number) => {
+    if (!vivo.current) return;
+    if (i >= lista.length) { setTocando(-1); return; }
+    setTocando(i);
+    const fala = lista[i];
+    const seguir = (honrarPausa: boolean) => {
+      if (!vivo.current) return;
+      const ms = honrarPausa ? fala.pausa_ms : 0;
+      if (!ms) { tocar(lista, i + 1); return; }
+      timer.current = window.setTimeout(() => tocar(lista, i + 1), ms);
+    };
+    if (!fala.url) { seguir(false); return; }   // sem voz: segue para a próxima
+    const a = new Audio(fala.url);
+    audio.current = a;
+    a.addEventListener("ended", () => seguir(true));
+    // Mesma regra da sala: 404 e recusa do navegador seguem SEM esperar a
+    // pausa — silêncio no lugar de uma frase que não foi dita é o dobro do
+    // problema.
+    a.addEventListener("error", () => seguir(false));
+    a.play().catch(() => seguir(false));
+  };
+
+  const ensaiar = async () => {
+    if (tocando >= 0) { parar(); return; }
+    setErro(""); setCarregando(true);
+    try {
+      const corpo = {
+        etapa: etapa.id,
+        falas: blocos.flatMap((b) => b.paragrafos
+          .map((texto, i) => ({ texto, pausa_ms: b.pausas[i] ?? 0 }))
+          .filter((f) => f.texto.trim())),
+      };
+      const r = await adminApi<{ falas: Fala[]; desligado?: number }>("/encontro/ensaio", {
+        method: "POST", body: JSON.stringify(corpo),
+      });
+      setFalas(r.falas);
+      if (!r.falas.length) { setErro("Esta etapa não tem texto para falar."); return; }
+      if (r.desligado) setErro("Voz desligada neste serviço: o ensaio segue sem áudio.");
+      vivo.current = true;
+      tocar(r.falas, 0);
+    } catch (e: any) {
+      setErro(String(e.message || e));
+    } finally {
+      setCarregando(false);
+    }
+  };
+
+  const temTexto = blocos.some((b) => b.paragrafos.some((p) => p.trim()));
+  return (
+    <div className="enc-ensaio">
+      <button className="ad-btn" disabled={carregando || !temTexto} onClick={ensaiar}
+        title={ligada
+          ? "Toca os textos desta etapa, na ordem e com as pausas, como a turma vai ouvir"
+          : "Voz desligada neste serviço: o ensaio mostra a ordem, sem áudio"}>
+        {carregando ? "Preparando…" : tocando >= 0 ? "■ Parar" : "▶ Ensaiar a etapa"}
+      </button>
+      {tocando >= 0 && falas[tocando] && (
+        <div className="enc-ensaio-fala">
+          <span className="ad-muted">{tocando + 1}/{falas.length}</span>
+          <span>{falas[tocando].texto}</span>
+          {falas[tocando].pausa_ms > 0 && (
+            <span className="ad-muted">↳ pausa de {falas[tocando].pausa_ms} ms</span>
+          )}
+        </div>
+      )}
+      {erro && <div className="ad-muted enc-nota">{erro}</div>}
+    </div>
+  );
+}
+
+/* ---------------- A voz ---------------- */
 
 function PainelDaVoz({ cfg, setCfg, provedores, aviso, ligada }: {
   cfg: Config; setCfg: (f: (c: Config) => Config) => void;
@@ -356,7 +776,7 @@ function PainelDaVoz({ cfg, setCfg, provedores, aviso, ligada }: {
   );
 }
 
-/* ---------------- 2. O ritmo do voto ---------------- */
+/* ---------------- O ritmo do voto ---------------- */
 
 function PainelDoRitmo({ cfg, setCfg, limites }: {
   cfg: Config; setCfg: (f: (c: Config) => Config) => void;
@@ -367,6 +787,11 @@ function PainelDoRitmo({ cfg, setCfg, limites }: {
   return (
     <section className="ad-panel">
       <h3 className="ad-h">O voto da turma</h3>
+      <p className="ad-muted">
+        Vale para todas as etapas que perguntam. As quatro primeiras não perguntam:
+        numa sala que ainda está enchendo não há a quem perguntar, e quem não vota conta
+        como “não” — o voto nunca passaria.
+      </p>
       <div className="enc-ritmo">
         <label className="ad-field">
           Janela do voto (s)
@@ -401,95 +826,7 @@ function PainelDoRitmo({ cfg, setCfg, limites }: {
   );
 }
 
-/* ---------------- 3. As etapas ---------------- */
-
-function PainelDasEtapas({ cfg, setCfg, etapas, padrao, avancaSozinha }: {
-  cfg: Config; setCfg: (f: (c: Config) => Config) => void;
-  etapas: Etapa[]; padrao: Config; avancaSozinha: string[];
-}) {
-  return (
-    <section className="ad-panel">
-      <h3 className="ad-h">As {etapas.length} etapas, na ordem do encontro</h3>
-      <p className="ad-muted">
-        A ordem vem do servidor e não se configura aqui — ela está no código da cadência,
-        do sequenciador do facilitador e da tela da sala, e as três são conferidas por
-        prova. O que se ajusta é <strong>quanto cada uma dura</strong>.
-      </p>
-      <table className="ad-table enc-etapas">
-        <thead>
-          <tr>
-            <th>#</th><th>Etapa</th><th>O que o ▶ faz</th>
-            <th>Duração</th><th>Ao vencer</th><th>Texto e roteiro na tela</th>
-          </tr>
-        </thead>
-        <tbody>
-          {etapas.map((e, i) => {
-            const valor = cfg.duracoes[e.id];
-            const dePadrao = padrao.duracoes[e.id];
-            const sozinha = avancaSozinha.includes(e.id);
-            return (
-              <tr key={e.id}>
-                <td className="ad-muted">{i + 1}</td>
-                <td>
-                  <strong>{e.titulo}</strong>
-                  <div className="ad-muted enc-id">{e.id}</div>
-                </td>
-                <td>{e.acao}</td>
-                <td className="enc-dur">
-                  {valor === null ? (
-                    <span className="ad-muted" title="Etapa final: não tem relógio">sem relógio</span>
-                  ) : (
-                    <>
-                      <input className="ad-input" type="number" value={valor} min={10} max={7200}
-                        onChange={(ev) => setCfg((c) => ({
-                          ...c, duracoes: { ...c.duracoes, [e.id]: Number(ev.target.value || 0) },
-                        }))} />
-                      <span className="ad-muted">{dur(valor)}</span>
-                      {valor !== dePadrao && (
-                        <button className="ad-link" title={`Padrão: ${dur(dePadrao)}`}
-                          onClick={() => setCfg((c) => ({
-                            ...c, duracoes: { ...c.duracoes, [e.id]: dePadrao },
-                          }))}>↺ padrão</button>
-                      )}
-                    </>
-                  )}
-                </td>
-                <td>
-                  {valor === null
-                    ? <span className="ad-muted">—</span>
-                    : sozinha
-                      ? <span className="ad-pill" data-ok="false">avança sozinha</span>
-                      : <span className="ad-pill">pergunta à turma</span>}
-                </td>
-                <td>
-                  {e.secao ? (
-                    <div className="enc-secao-ref">
-                      <span className="ad-muted">{e.secao_titulo}</span>
-                      {e.blocos !== "todos" && (
-                        <span className="ad-muted enc-nota">
-                          {e.blocos === "primeiro" ? "só o 1º bloco" : "do 2º bloco em diante"}
-                        </span>
-                      )}
-                      <span className="ad-muted enc-nota">
-                        {e.textos.reduce((n, b) => n + b.paragrafos.length, 0)} parágrafos falados
-                      </span>
-                    </div>
-                  ) : <span className="ad-muted">sem texto fixo</span>}
-                  <div className="enc-chips">{e.campos.map((c) => <Lugares key={c.name} campo={c} />)}</div>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-      <p className="ad-muted enc-nota">
-        As quatro primeiras etapas <strong>avançam sozinhas</strong>: numa sala que ainda
-        está enchendo não há a quem perguntar, e quem não vota conta como “não” — o voto
-        nunca passaria e a sala nunca começaria.
-      </p>
-    </section>
-  );
-}
+/* ---------------- Peças pequenas ---------------- */
 
 /** Os LUGARES do roteiro, não o conteúdo: "Questão 1 · 2 · 3".
  *
@@ -508,125 +845,5 @@ function Lugares({ campo }: { campo: Campo }) {
       )}
       {campo.tipo === "imagem" && <em>imagem de fundo</em>}
     </span>
-  );
-}
-
-/* ---------------- 4. Os textos e as pausas ---------------- */
-
-function PainelDosTextos({ cfg, setCfg, dados }: {
-  cfg: Config; setCfg: (f: (c: Config) => Config) => void; dados: Dados;
-}) {
-  // Atualiza um parágrafo (ou a pausa dele) sem mutar nada: cada nível é
-  // recriado. Mutar o objeto em estado faria o React não re-renderizar e o
-  // campo "não aceitar o que foi digitado".
-  const mexer = (si: number, bi: number, f: (b: Bloco) => Bloco) =>
-    setCfg((c) => ({
-      ...c,
-      secoes: c.secoes.map((s, i) => i !== si ? s : {
-        ...s, blocos: s.blocos.map((b, j) => (j === bi ? f(b) : b)),
-      }),
-    }));
-
-  return (
-    <section className="ad-panel">
-      <h3 className="ad-h">O que a sala mostra e fala</h3>
-      <p className="ad-muted">
-        Este é o texto da plataforma, igual em todo episódio. Editar aqui vale para as
-        salas criadas <strong>de agora em diante</strong>: cada sala guarda o texto do dia
-        em que foi criada, para uma edição não trocar a instrução na cara de uma turma no
-        meio da leitura. A <strong>pausa</strong> é o silêncio depois do parágrafo.
-      </p>
-      {cfg.secoes.map((secao, si) => {
-        const meta = dados.secoes.find((s) => s.key === secao.key);
-        const etapas = dados.etapas.filter((e) => e.secao === secao.key);
-        return (
-          <div className="enc-secao" key={secao.key}>
-            <div className="enc-secao-h">
-              <h4>{meta?.titulo || secao.key}</h4>
-              <span className="ad-muted">
-                {etapas.length
-                  ? `aparece em: ${etapas.map((e) => e.titulo).join(", ")}`
-                  : "nenhuma etapa usa esta seção"}
-              </span>
-            </div>
-            {!!meta?.campos.length && (
-              <div className="enc-chips">
-                {meta.campos.map((c) => <Lugares key={c.name} campo={c} />)}
-              </div>
-            )}
-            {secao.blocos.length === 0 && (
-              <p className="ad-muted enc-nota">
-                Sem texto fixo — esta seção é só conteúdo do episódio.
-              </p>
-            )}
-            {secao.blocos.map((bloco, bi) => (
-              <div className="enc-bloco" key={bi}>
-                <div className="enc-bloco-h">
-                  <input className="ad-input" placeholder="Título do bloco (opcional)"
-                    value={bloco.titulo}
-                    onChange={(e) => mexer(si, bi, (b) => ({ ...b, titulo: e.target.value }))} />
-                  <label className="ad-check" title="Desenha os parágrafos como lista com marcador">
-                    <input type="checkbox" checked={bloco.lista}
-                      onChange={(e) => mexer(si, bi, (b) => ({ ...b, lista: e.target.checked }))} />
-                    lista
-                  </label>
-                  <button className="ad-link ad-danger" title="Remove o bloco inteiro"
-                    onClick={() => setCfg((c) => ({
-                      ...c,
-                      secoes: c.secoes.map((s, i) => i !== si ? s : {
-                        ...s, blocos: s.blocos.filter((_, j) => j !== bi),
-                      }),
-                    }))}>remover bloco</button>
-                </div>
-                {bloco.paragrafos.map((p, pi) => (
-                  <div className="enc-par" key={pi}>
-                    <textarea className="ad-input" rows={2} value={p}
-                      onChange={(e) => mexer(si, bi, (b) => ({
-                        ...b, paragrafos: b.paragrafos.map((x, k) => (k === pi ? e.target.value : x)),
-                      }))} />
-                    <label className="ad-field enc-pausa">
-                      pausa (ms)
-                      <input className="ad-input" type="number" min={0} max={30000} step={100}
-                        value={bloco.pausas[pi] ?? 0}
-                        onChange={(e) => mexer(si, bi, (b) => ({
-                          ...b,
-                          pausas: b.paragrafos.map((_, k) =>
-                            k === pi ? Number(e.target.value || 0) : (b.pausas[k] ?? 0)),
-                        }))} />
-                    </label>
-                    <button className="ad-link ad-danger" title="Remove este parágrafo"
-                      onClick={() => mexer(si, bi, (b) => ({
-                        ...b,
-                        paragrafos: b.paragrafos.filter((_, k) => k !== pi),
-                        // A pausa sai COM o parágrafo: as duas listas são
-                        // alinhadas por índice, e remover só o texto faria a
-                        // sala calar no lugar errado a partir daqui.
-                        pausas: b.pausas.filter((_, k) => k !== pi),
-                      }))}>✕</button>
-                  </div>
-                ))}
-                <button className="ad-link"
-                  onClick={() => mexer(si, bi, (b) => ({
-                    ...b, paragrafos: [...b.paragrafos, ""], pausas: [...b.pausas, 0],
-                  }))}>+ parágrafo</button>
-              </div>
-            ))}
-            <button className="ad-btn-outline"
-              onClick={() => setCfg((c) => ({
-                ...c,
-                secoes: c.secoes.map((s, i) => i !== si ? s : {
-                  ...s, blocos: [...s.blocos, { titulo: "", lista: false, paragrafos: [""], pausas: [0] }],
-                }),
-              }))}>+ bloco</button>
-          </div>
-        );
-      })}
-      <p className="ad-muted enc-nota">
-        Parágrafo em branco é descartado ao salvar, e bloco sem parágrafo nenhum também —
-        a sala desenharia uma caixa muda. Texto editado perde a voz antiga e ganha uma
-        chave nova: use <strong>⚡ Sintetizar todo o texto fixo</strong> depois de editar,
-        ou a primeira sala criada é que vai esperar pela síntese.
-      </p>
-    </section>
   );
 }

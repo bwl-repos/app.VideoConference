@@ -148,52 +148,111 @@
 
 /* ── Encontro (facilitação automática) ──────────────────────────────────────
  *
- * Uma tela de FORMULÁRIO longo dentro de um painel que até aqui só tinha
- * tabelas e cartões. O que ela acrescenta é o par "texto + número ao lado"
- * (parágrafo e pausa) e as fichas dos lugares do roteiro.
+ * Mestre-detalhe: a lista das etapas à esquerda, e à direita tudo que diz
+ * respeito à etapa aberta — tempo, texto editável, lugares do roteiro, preview
+ * e o ensaio da voz. A versão anterior empilhava painéis e deixava o texto
+ * longe da etapa em que ele aparece.
  */
-.enc-intro { max-width: 70ch; }
 .enc-acoes { display:flex; align-items:center; gap:10px; }
 .enc-acoes--esq { justify-content:flex-start; flex-wrap:wrap; margin:6px 0 2px; }
 .enc-nota { font-size:12px; font-weight:400; line-height:1.45; }
-.enc-id { font-size:11px; font-family:ui-monospace,Menlo,monospace; }
 
 .enc-aviso { padding:10px 13px; border-radius:9px; font-size:13px; margin:10px 0; border:1px solid; }
 .enc-aviso[data-lvl="crit"] { background:#fdeaeb; border-color:#f5c2c6; color:#b91622; }
 .enc-aviso[data-lvl="warn"] { background:#fff8e1; border-color:#ffe082; color:#8a5a00; }
 .enc-aviso[data-lvl="ok"]   { background:#f0fdf4; border-color:#bbf7d0; color:#15803d; }
 
-/* voz e ritmo: campos lado a lado que viram coluna em tela estreita */
-.enc-voz, .enc-ritmo { display:grid; gap:4px 16px; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); }
+/* abas */
+.enc-abas { display:flex; gap:6px; border-bottom:1px solid #e5e7eb; margin:14px 0 0; }
+.enc-abas button { background:none; border:none; border-bottom:2px solid transparent;
+  padding:9px 14px; font-size:14px; font-weight:600; color:#6b7280; cursor:pointer; }
+.enc-abas button:hover { color:#1a1d23; }
+.enc-abas button[data-active="true"] { color:#e11d2a; border-bottom-color:#e11d2a; }
 
-/* etapas */
-.enc-etapas td { vertical-align:top; }
-.enc-dur { white-space:nowrap; }
-.enc-dur input { width:84px; display:inline-block; margin-right:8px; }
-.enc-secao-ref { display:flex; flex-direction:column; gap:2px; }
+/* mestre-detalhe */
+.enc-mestre { display:grid; grid-template-columns:minmax(230px, 300px) 1fr; gap:18px; margin-top:16px; align-items:start; }
+.enc-lista { display:flex; flex-direction:column; gap:3px; position:sticky; top:0; }
+.enc-item { display:flex; align-items:center; gap:9px; text-align:left; background:none;
+  border:1px solid transparent; border-radius:9px; padding:7px 9px; cursor:pointer; width:100%; }
+.enc-item:hover { background:#fafbfc; }
+.enc-item[data-aberta="true"] { background:#fff; border-color:#e5e7eb; box-shadow:0 1px 3px rgba(0,0,0,.05); }
+.enc-item[data-aberta="true"] .enc-item-n { background:#e11d2a; color:#fff; }
+.enc-item-n { flex:none; width:22px; height:22px; border-radius:6px; background:#f0f1f4;
+  color:#6b7280; font-size:12px; font-weight:700; display:grid; place-items:center; }
+.enc-item-txt { flex:1; display:flex; flex-direction:column; min-width:0; }
+.enc-item-txt strong { font-size:13px; font-weight:600; color:#1a1d23;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.enc-item-txt span { font-size:11px; }
+.enc-item-meta { flex:none; display:flex; align-items:center; gap:6px; font-size:11px; }
+.enc-item-dur { font-variant-numeric:tabular-nums; color:#6b7280; font-weight:600; }
 
-/* as FICHAS dos lugares do roteiro: o nome do campo e, quando é lista, os
- * índices previstos ("Questão 1 · 2 · 3"). Nunca o conteúdo. */
+/* detalhe */
+.enc-detalhe { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:18px; min-width:0; }
+.enc-detalhe-h { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; flex-wrap:wrap; }
+.enc-detalhe-h .ad-h { margin:0; }
+.enc-sub { font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:#8a909a; margin:18px 0 8px; }
+
+.enc-cartoes { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; margin-top:14px; }
+.enc-cartoes .ad-card { padding:12px 14px; }
+.enc-card-v { display:flex; flex-direction:column; gap:4px; align-items:flex-start; margin-top:4px; font-size:14px; }
+.enc-dur { display:flex; align-items:center; gap:8px; margin-top:4px; }
+.enc-dur input { width:86px; }
+
+.enc-dois { display:grid; grid-template-columns:1fr minmax(240px, 380px); gap:20px; align-items:start; }
+
+/* fichas dos lugares do roteiro: o nome do campo e os índices previstos */
 .enc-chips { display:flex; flex-wrap:wrap; gap:6px; margin:6px 0; }
 .enc-chip { display:inline-flex; flex-direction:column; gap:1px; background:#f4f6f8;
   border:1px dashed #cfd5dc; border-radius:8px; padding:4px 9px; font-size:12px; font-weight:600; color:#3a3f47; }
 .enc-chip em { font-style:normal; font-weight:400; color:#8a909a; font-size:11px; }
 .enc-chip[data-tipo="imagem"] { border-style:dotted; }
 
-/* textos */
-.enc-secao { border-top:1px solid #eceef1; padding-top:14px; margin-top:14px; }
-.enc-secao-h { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
-.enc-secao-h h4 { margin:0; font-size:15px; }
+/* edição do texto */
 .enc-bloco { background:#fafbfc; border:1px solid #eceef1; border-radius:10px; padding:12px; margin:10px 0; }
 .enc-bloco-h { display:flex; align-items:center; gap:10px; margin-bottom:8px; flex-wrap:wrap; }
-.enc-bloco-h .ad-input { flex:1; min-width:180px; }
+.enc-bloco-h .ad-input { flex:1; min-width:150px; }
 .enc-bloco-h .ad-check { margin:0; white-space:nowrap; }
 .enc-par { display:flex; align-items:flex-start; gap:10px; margin-bottom:8px; }
-.enc-par textarea { flex:1; }
-.enc-pausa { margin:0; width:110px; flex:none; font-size:11px; }
+.enc-par textarea { flex:1; min-width:0; }
+.enc-pausa { margin:0; width:96px; flex:none; font-size:11px; }
 .enc-pausa input { width:100%; }
 
+/* preview: o que entra na tela da etapa. Moldura DIFERENTE da sala de
+ * propósito — é um esquema do conteúdo, não uma cópia do layout dela. */
+.enc-preview { border:1px solid #d9dce1; border-radius:10px; overflow:hidden; background:#fff; }
+.enc-preview-topo { display:flex; justify-content:space-between; align-items:center;
+  background:#1a1d23; color:#e7e9ee; padding:8px 12px; font-size:12px; font-weight:600; }
+.enc-preview-topo .ad-muted { color:#9aa1ad; }
+.enc-preview-corpo { padding:12px; display:flex; flex-direction:column; gap:10px; font-size:13px; }
+.enc-preview-bloco { background:#f6f7f9; border-left:3px solid #cfd5dc; border-radius:6px; padding:8px 10px; }
+.enc-preview-bloco strong { display:block; margin-bottom:4px; }
+.enc-preview-bloco p { margin:0 0 6px; line-height:1.45; }
+.enc-preview-bloco p:last-child { margin-bottom:0; }
+.enc-preview-bloco ul { margin:0; padding-left:18px; line-height:1.5; }
+.enc-preview-bloco em { color:#9aa1ad; }
+.enc-preview-slot { border:1px dashed #cfd5dc; border-radius:8px; padding:8px 10px;
+  display:flex; flex-direction:column; gap:2px; background:#fcfdfe; }
+.enc-preview-slot span { font-weight:600; font-size:12px; }
+.enc-preview-slot em { font-style:normal; font-size:11px; color:#6b7280; }
+.enc-preview-slot small { font-size:11px; color:#9aa1ad; }
+
+/* ensaio */
+.enc-ensaio { display:flex; flex-direction:column; align-items:flex-end; gap:6px; max-width:340px; }
+.enc-ensaio-fala { display:flex; flex-direction:column; align-items:flex-end; gap:2px;
+  font-size:12px; text-align:right; color:#3a3f47; background:#f6f7f9;
+  border-radius:8px; padding:7px 10px; line-height:1.4; }
+
+/* voz e ritmo: campos lado a lado que viram coluna em tela estreita */
+.enc-voz, .enc-ritmo { display:grid; gap:4px 16px; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); }
+
+@media (max-width: 1100px) {
+  .enc-dois { grid-template-columns:1fr; }
+  .enc-ensaio { align-items:flex-start; max-width:none; }
+  .enc-ensaio-fala { align-items:flex-start; text-align:left; }
+}
 @media (max-width: 860px) {
+  .enc-mestre { grid-template-columns:1fr; }
+  .enc-lista { position:static; max-height:220px; overflow-y:auto; }
   .enc-par { flex-wrap:wrap; }
   .enc-pausa { width:140px; }
 }

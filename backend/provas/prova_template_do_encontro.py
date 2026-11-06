@@ -315,11 +315,79 @@ conferir("const ms = honrarPausa ? pausaDoItem(lista[i]) : 0;" in FRONT,
          "silencio no lugar de uma frase que nao foi dita e o dobro do problema")
 
 print()
+print("7b) o ensaio da etapa, na tela de configuracao")
+print()
+
+#: O ENSAIO TEM DE TOCAR O QUE A AULA VAI TOCAR.
+#:
+#: Uma segunda forma de sintetizar aqui (outra voz, outra chave, outro
+#: bucket) faria o ensaio soar diferente do encontro -- e aí o recurso é pior
+#: que não existir, porque dá confiança no lugar errado.
+ensaio = ROTA[ROTA.index("async def ensaio("):ROTA.index("@router.post(\"/aquecer\")")]
+conferir("encontro.perfil_da_voz(config)" in ensaio
+         and "voz.chave(voz.normalizar(f.texto), perfil)" in ensaio,
+         "o ensaio assina a MESMA chave que a sala tocaria",
+         "chave propria faria o ensaio soar diferente da aula")
+conferir("voz_porta.garantir_textos" in ensaio,
+         "e sintetiza pelo mesmo caminho, sem implementacao propria",
+         "e por isso ensaiar ADIANTA o aquecimento em vez de duplicar custo")
+conferir("if not voz_porta.configurado():" in ensaio,
+         "sem voz configurada ele devolve as falas sem URL, e nao 503",
+         "ler a etapa na ordem ainda serve quando nao ha audio")
+
+#: A MESMA REGRA DE PAUSA DA SALA: silencio so depois de uma fala que TOCOU.
+conferir("const seguir = (honrarPausa: boolean) => {" in TELA
+         and "const ms = honrarPausa ? fala.pausa_ms : 0;" in TELA,
+         "o ensaio so espera a pausa depois de uma fala que tocou",
+         "mesma regra da sala: silencio por uma frase nao dita e o dobro do erro")
+conferir("useEffect(() => { parar(); setFalas([]); setErro(\"\"); }, [etapa.id]);" in TELA,
+         "e trocar de etapa PARA o ensaio em andamento",
+         "senao a fala da etapa anterior toca por cima da que se configura agora")
+
+#: O INDICE DO BLOCO E O DA SECAO, NAO O DA FATIA.
+#:
+#: A plenaria mostra `[0]` e as questoes mostram `[1..]`. Editando pelo indice
+#: da fatia, mexer no 1o bloco visivel da etapa "Questoes" gravaria no bloco da
+#: plenaria -- o texto mudaria na etapa errada, sem erro nenhum.
+conferir("function blocosDaEtapa(cfg: Config, etapa: Etapa)" in TELA
+         and "secao.blocos.map((bloco, i) => ({ bloco, i }))" in TELA,
+         "a tela carrega o indice do bloco DENTRO da secao",
+         "editar pelo indice da fatia escreveria no bloco de outra etapa")
+conferir("const irmas = etapas.filter(" in TELA,
+         "e diz quais OUTRAS etapas mostram o mesmo texto",
+         "tres etapas dividem a abertura: editar uma muda as tres")
+
+#: O PREVIEW DESENHA COM A REGRA DA SALA.
+#:
+#: Nao e uma copia do layout (seria uma segunda implementacao da tela da sala),
+#: mas a REGRA de renderizacao tem de ser a mesma: um bloco marcado `lista` que
+#: aparece como paragrafo aqui promete uma tela que a aula nao mostra.
+conferir("b.lista" in TELA and "<ul>" in TELA,
+         "o preview respeita `lista` como a sala respeita",
+         "bloco de criterios de risco vira marcadores nos dois lugares")
+conferir("b.lista ? (" in FRONT,
+         "CONTROLE: e a sala continua tendo essa regra",
+         "a afirmacao acima so vale enquanto as duas existirem")
+
+print()
 print("8) quem pode configurar")
 
-conferir(ROTA.count("Depends(require_admin)") >= 5,
-         "todas as rotas do painel exigem sessao de admin",
-         "sintetizar voz de graca para quem passar pela URL")
+#: TODA rota, e nao "pelo menos N rotas".
+#:
+#: A primeira versao disto contava `>= 5` ocorrencias de require_admin. A
+#: rota do ensaio virou a sexta, e aí tirar a guarda de UMA deixava cinco --
+#: a prova seguia verde com a previa de voz aberta a quem tivesse a URL. Uma
+#: contagem protege ate o dia em que o numero cresce; a RELACAO protege sempre.
+rotas = re.findall(
+    r'@router\.\w+\("([^"]*)"\)\s+(?:async\s+)?def\s+\w+\((.*?)\)', ROTA, re.S)
+conferir(len(rotas) >= 6,
+         "as %d rotas do painel foram lidas do arquivo" % len(rotas),
+         "regex que nao casa deixaria a afirmacao abaixo vazia, e verde")
+sem_guarda = [caminho for caminho, args in rotas if "require_admin" not in args]
+conferir(not sem_guarda,
+         "TODA rota do painel exige sessao de admin",
+         "sem guarda: %s" % sem_guarda if sem_guarda
+         else "sintetizar voz de graca para quem passar pela URL")
 conferir('prefix="/api/admin/encontro"' in ROTA,
          "e vivem sob /api/admin, onde o cookie de sessao e valido",
          "fora desse path o navegador nao manda o cookie e a tela da 401")
