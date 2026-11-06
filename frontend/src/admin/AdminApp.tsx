@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { adminApi } from "./adminApi";
+import EncontroPage from "./EncontroPage";
 import "../styles/admin.css";
 
-type View = "dashboard" | "monitoring" | "servers" | "finance" | "rooms" | "licenses" | "license" | "plans";
+type View = "dashboard" | "monitoring" | "servers" | "finance" | "rooms" | "licenses" | "license" | "plans" | "encontro";
 
 export default function AdminApp() {
   const [me, setMe] = useState<any>(null);
@@ -79,6 +80,7 @@ function Panel({ me, onLogout }: { me: any; onLogout: () => void }) {
           <button data-active={view === "rooms"} onClick={() => setView("rooms")}>Salas</button>
           <button data-active={view === "licenses" || view === "license"} onClick={() => setView("licenses")}>Licenças</button>
           <button data-active={view === "plans"} onClick={() => setView("plans")}>Planos</button>
+          <button data-active={view === "encontro"} onClick={() => setView("encontro")}>Encontro</button>
         </nav>
         <main className="ad-content">
           {view === "dashboard" && <Dashboard />}
@@ -89,6 +91,7 @@ function Panel({ me, onLogout }: { me: any; onLogout: () => void }) {
           {view === "licenses" && <Licenses onOpen={open} />}
           {view === "license" && tenantId && <LicenseDetail id={tenantId} onBack={() => setView("licenses")} />}
           {view === "plans" && <Plans />}
+          {view === "encontro" && <EncontroPage />}
         </main>
       </div>
       {showPw && <ChangePassword onClose={() => setShowPw(false)} />}

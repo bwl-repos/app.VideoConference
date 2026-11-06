@@ -558,8 +558,22 @@ aplicar = so_codigo(ROUTER[ROUTER.index("async def _aplicar_cadencia"):
 conferir("cadencia.precisa_de_presenca(estado, agora)" in aplicar,
          "o router pergunta à regra se precisa",
          "e não reimplementa a condição do lado de fora")
-conferir("_presentes(room_id)" in aplicar and "decidir(estado, agora, presentes)" in aplicar,
+conferir("_presentes(room_id)" in aplicar
+         and "decidir(estado, agora, presentes, params)" in aplicar,
          "CONTROLE: e quando precisa, busca de verdade")
+
+#: E OS NUMEROS SAO OS CONFIGURADOS, nao as constantes do modulo.
+#:
+#: O painel admin passou a configurar duracao, janela, tolerancia e limiar
+#: (`services/encontro.py`). Se o router chamasse `decidir` sem passar os
+#: parametros, a configuracao seria gravada, a tela mostraria o valor novo e a
+#: sala seguiria no ritmo antigo -- sem erro em lugar nenhum.
+conferir("params = encontro.parametros(config)" in aplicar,
+         "e os parametros sao os CONFIGURADOS, nao as constantes",
+         "sem isso o painel grava e a sala ignora")
+conferir("params.tolerancia" in aplicar and "params.duracoes" in aplicar,
+         "a extensao da etapa tambem sai da configuracao",
+         "tolerancia fixa com duracao configurada rebobina a etapa errado")
 
 print()
 print("16) o número na tela é o número que a cadência apura")
@@ -683,7 +697,7 @@ conferir(bool(_defaults) and _defaults[-1][1] in DURACAO_DA_ETAPA,
 _aplicar = so_codigo(
     _ROUTER[_ROUTER.index("async def _aplicar_cadencia"):
             _ROUTER.index("async def _aplicar_cadencia") + 4000])
-conferir("if estado.stage not in cadencia.DURACAO_DA_ETAPA:" in _aplicar,
+conferir("if estado.stage not in params.duracoes:" in _aplicar,
          "a cadencia detecta etapa fora do vocabulario",
          "sem isso a sala para sem deixar rastro")
 conferir("logger.warning(" in _aplicar,

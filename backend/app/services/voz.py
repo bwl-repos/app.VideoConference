@@ -59,11 +59,19 @@ logger = logging.getLogger(__name__)
 
 #: Versão da voz. Entra no hash, então BUMPAR INVALIDA TODO O CACHE.
 #:
-#: Existe porque a voz é escolhida do outro lado (CoreService): se ela mudar
-#: lá, os objetos já gravados aqui continuariam sendo servidos com a voz antiga
-#: para sempre, e ninguém ligaria o sintoma à mudança. Trocar este número faz a
-#: próxima sala pedir tudo de novo.
-VERSAO = "1"
+#: Existia porque a voz era escolhida do outro lado (CoreService): se ela
+#: mudasse lá, os objetos já gravados aqui continuariam sendo servidos com a voz
+#: antiga para sempre, e ninguém ligaria o sintoma à mudança.
+#:
+#: Agora a voz é CONFIGURADA (`services/encontro.py`) e entra no hash pelo
+#: `perfil` — o que resolve de vez o mesmo problema, e para qualquer número de
+#: vozes ao mesmo tempo. A `VERSAO` segue como a saída para o que o perfil não
+#: descreve: um motor que mudou de timbre do lado de lá, uma correção na
+#: normalização do texto.
+#:
+#: 1 → 2 quando o perfil entrou na chave: as chaves antigas (sem perfil) não
+#: eram distinguíveis das novas, então o acervo foi invalidado de propósito.
+VERSAO = "2"
 
 #: Prefixo dos objetos no bucket de gravações. Separado para a limpeza de
 #: gravação (que apaga por idade) nunca levar a voz junto: a gravação de uma
@@ -80,9 +88,21 @@ def normalizar(texto: str) -> str:
     return re.sub(r"\s+", " ", (texto or "").strip())
 
 
-def chave(texto: str) -> str:
-    """Onde o áudio deste texto mora. Função do texto, e de mais nada."""
-    digest = hashlib.sha256(f"{VERSAO}|{normalizar(texto)}".encode("utf-8")).hexdigest()
+def chave(texto: str, perfil: str = "") -> str:
+    """Onde o áudio deste texto mora. Função do texto E DA VOZ, e de mais nada.
+
+    `perfil` é a identidade da voz (`encontro.perfil_da_voz`): provedor, voz e,
+    no Polly, motor. Ele entra no hash porque sem ele **trocar a voz no painel
+    não mudaria nada**: o mesmo texto daria a mesma chave, o objeto antigo já
+    estaria no bucket, e a sala seguiria falando com a voz anterior para sempre.
+    É o defeito mais difícil desta família — a configuração "não funciona" e
+    nada erra em lugar nenhum.
+
+    Vazio reproduz uma chave própria, e não a chave de antes: a `VERSAO` subiu
+    junto justamente para não haver dois significados para o mesmo endereço.
+    """
+    digest = hashlib.sha256(
+        f"{VERSAO}|{perfil}|{normalizar(texto)}".encode("utf-8")).hexdigest()
     return f"{PREFIXO}/{digest}.mp3"
 
 
@@ -161,7 +181,7 @@ def paragrafos_do_roteiro(roteiro: Any) -> list[str]:
     return fora
 
 
-def com_audios(roteiro: Any, assinar: Callable[[str], str]) -> Any:
+def com_audios(roteiro: Any, assinar: Callable[[str], str], perfil: str = "") -> Any:
     """Acrescenta a cada bloco fixo um `audios` ALINHADO com `paragrafos`.
 
     O alinhamento é o contrato: `audios[i]` é a voz de `paragrafos[i]`. Um
@@ -189,7 +209,7 @@ def com_audios(roteiro: Any, assinar: Callable[[str], str]) -> Any:
                     audios.append("")
                     continue
                 try:
-                    audios.append(assinar(chave(limpo)))
+                    audios.append(assinar(chave(limpo, perfil)))
                 except Exception:   # noqa: BLE001
                     audios.append("")   # voz indisponível não pode quebrar a sala
             bloco["audios"] = audios
@@ -207,9 +227,9 @@ def com_audios(roteiro: Any, assinar: Callable[[str], str]) -> Any:
             if nome in CAMPOS_SEM_VOZ:
                 continue
             if isinstance(valor, list):
-                vozes[nome] = [_assinar_texto(item, assinar) for item in valor]
+                vozes[nome] = [_assinar_texto(item, assinar, perfil) for item in valor]
             else:
-                url = _assinar_texto(valor, assinar)
+                url = _assinar_texto(valor, assinar, perfil)
                 if url:
                     vozes[nome] = url
         if vozes:
@@ -217,13 +237,13 @@ def com_audios(roteiro: Any, assinar: Callable[[str], str]) -> Any:
     return roteiro
 
 
-def _assinar_texto(valor: Any, assinar: Callable[[str], str]) -> str:
+def _assinar_texto(valor: Any, assinar: Callable[[str], str], perfil: str = "") -> str:
     """A URL da voz de um texto, ou vazio — nunca uma exceção."""
     limpo = normalizar(str(valor or ""))
     if not limpo:
         return ""
     try:
-        return assinar(chave(limpo))
+        return assinar(chave(limpo, perfil))
     except Exception:   # noqa: BLE001
         return ""
 
@@ -234,6 +254,7 @@ async def garantir(
     tem: Callable[[str], bool],
     sintetizar: Callable[[str], Awaitable[bytes]],
     guardar: Callable[[str, bytes], None],
+    perfil: str = "",
 ) -> dict[str, int]:
     """Sintetiza o que falta, e só o que falta.
 
@@ -252,7 +273,7 @@ async def garantir(
         if not limpo or limpo in feitos:
             continue
         feitos.add(limpo)
-        alvo = chave(limpo)
+        alvo = chave(limpo, perfil)
         try:
             if tem(alvo):
                 contas["ja_tinha"] += 1

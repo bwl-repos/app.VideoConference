@@ -141,6 +141,16 @@ export interface RoteiroBlocoFixo {
    * tela segue igual ao que sempre foi.
    */
   audios?: string[];
+  /**
+   * O silêncio (em ms) DEPOIS de cada parágrafo, no mesmo alinhamento por
+   * índice de `audios` (`pausas[i]` vem depois de `paragrafos[i]`).
+   *
+   * É a cadência da fala, configurada no painel admin ("Encontro"). Pausa é um
+   * NÚMERO, e não silêncio sintetizado: ajustá-la não refaz áudio nenhum e não
+   * custa nada ao sintetizador. Ausente ou zero = uma fala emenda na outra,
+   * que é como a sala sempre falou.
+   */
+  pausas?: number[];
 }
 export interface RoteiroSnapshot {
   episodio?: { id?: string; titulo?: string };

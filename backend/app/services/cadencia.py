@@ -34,6 +34,13 @@ from datetime import datetime, timedelta
 
 #: Quanto dura cada etapa antes de a sala perguntar se pode seguir.
 #:
+#: ESTES SAO OS VALORES DE FABRICA. Quem ajusta o ritmo de um encontro hoje
+#: faz isso pelo painel admin (`services/encontro.py`, tela "Encontro"), e a
+#: configuracao salva chega aqui por `Parametros` -- nao por este dicionario.
+#: Esta tabela segue sendo a fonte de um banco sem a tabela de configuracao,
+#: e e dela que a base da tela e lida: mudar um numero aqui muda o padrao de
+#: quem nunca configurou nada.
+#:
 #: São valores de PRODUTO, não constantes técnicas: quem for ajustar o ritmo de
 #: um encontro mexe aqui. Ficam todos num lugar só para que a soma seja legível
 #: -- um encontro inteiro é a soma desta tabela mais o que a turma demorar a
@@ -131,6 +138,39 @@ LIMIAR_DE_AVANCO = 0.5
 #: original: a turma já teve o período inteiro, e o que falta é um empurrão,
 #: não outra rodada completa.
 TOLERANCIA = timedelta(seconds=120)
+
+
+@dataclass(frozen=True)
+class Parametros:
+    """Os números da cadência, para esta função não ler constante de módulo.
+
+    São os quatro valores de PRODUTO acima (duração de cada etapa, janela do
+    voto, tolerância e limiar). Entram por parâmetro, com `PADRAO` reproduzindo
+    exatamente as constantes, por duas razões:
+
+    1. **a prova exercita outros valores** sem mexer em estado global — a mesma
+       razão pela qual o relógio de `decidir` já era parâmetro;
+    2. **o painel admin passou a configurá-los** (`services/encontro.py`). Lidos
+       do módulo, a configuração só valeria depois de um deploy — e a tela
+       prometeria um ritmo que a sala não cumpre.
+    """
+
+    duracoes: dict[str, int | None]
+    janela_voto: timedelta
+    tolerancia: timedelta
+    limiar: float
+
+
+#: A cadência como ela sempre foi: as constantes deste módulo.
+#:
+#: É o valor por omissão de `decidir`, e é o que mantém a regra exercitável sem
+#: banco: `decidir(estado, agora, presentes)` continua significando o mesmo.
+PADRAO = Parametros(
+    duracoes=DURACAO_DA_ETAPA,
+    janela_voto=JANELA_DO_VOTO,
+    tolerancia=TOLERANCIA,
+    limiar=LIMIAR_DE_AVANCO,
+)
 
 
 @dataclass(frozen=True)
@@ -239,7 +279,8 @@ def precisa_de_presenca(estado: Estado, agora: datetime) -> bool:
     return agora >= estado.voto_fecha_em
 
 
-def decidir(estado: Estado, agora: datetime, presentes: list[str]) -> Decisao:
+def decidir(estado: Estado, agora: datetime, presentes: list[str],
+            params: Parametros = PADRAO) -> Decisao:
     """A decisão da cadência neste instante.
 
     Pura: nada de banco, nada de rede, nada de `datetime.now()`. O relógio
@@ -265,7 +306,7 @@ def decidir(estado: Estado, agora: datetime, presentes: list[str]) -> Decisao:
             return Decisao("nada", porque="voto em andamento")
 
         sim, total = apurar(estado.votos, presentes)
-        if maioria(sim, total):
+        if maioria(sim, total, params.limiar):
             prox = proxima_etapa(estado.stage)
             if prox is None:
                 return Decisao("nada", porque="não há etapa seguinte", sim=sim, total=total)
@@ -276,7 +317,7 @@ def decidir(estado: Estado, agora: datetime, presentes: list[str]) -> Decisao:
                        sim=sim, total=total)
 
     # ── SEM VOTO: O TEMPO DA ETAPA ACABOU? ──────────────────────────────────
-    duracao = DURACAO_DA_ETAPA.get(estado.stage)
+    duracao = params.duracoes.get(estado.stage)
     if duracao is None:
         return Decisao("nada", porque="etapa sem relógio (depende do host)")
     if estado.comecou_em is None:
@@ -296,5 +337,5 @@ def decidir(estado: Estado, agora: datetime, presentes: list[str]) -> Decisao:
         return Decisao("avancar", proxima=prox,
                        porque="tempo da abertura esgotado (não se vota a abertura)")
 
-    return Decisao("abrir_voto", voto_fecha_em=agora + JANELA_DO_VOTO,
+    return Decisao("abrir_voto", voto_fecha_em=agora + params.janela_voto,
                    porque="tempo da etapa esgotado")

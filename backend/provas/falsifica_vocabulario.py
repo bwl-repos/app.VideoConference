@@ -40,8 +40,8 @@ ESTRAGOS = [
 
     ("a cadencia deixa de detectar etapa desconhecida",
      RAIZ / "app/routers/openpbl_class.py",
-     "if estado.stage not in cadencia.DURACAO_DA_ETAPA:",
-     "if False and estado.stage not in cadencia.DURACAO_DA_ETAPA:"),
+     "if estado.stage not in params.duracoes:",
+     "if False and estado.stage not in params.duracoes:"),
 
     ("o frontend volta a trocar a etapa em silencio",
      FRONT,

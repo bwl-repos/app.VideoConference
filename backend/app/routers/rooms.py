@@ -12,7 +12,7 @@ from ..realtime.hub import hub
 from ..room_roles import roles_public as _roles_public, is_host_or_mod as _is_host_or_mod, update_roles as _update_roles
 from ..services.recording_service import presigned_url
 from ..services.livekit_service import set_participant_sources, remove_participant, list_participant_identities
-from ..services import voz as _voz, voz_porta as _voz_porta
+from ..services import encontro as _encontro, voz as _voz, voz_porta as _voz_porta
 from ..tenancy import resolve_tenant_id, get_effective_limits, normalize_branding
 
 logger = logging.getLogger(__name__)
@@ -73,7 +73,12 @@ def _roteiro_com_voz(roteiro):
     desiste em silêncio: a sala mostra o texto, como antes.
     """
     try:
-        return _voz.com_audios(roteiro, _voz_porta.assinar)
+        # O perfil da voz CONFIGURADA entra na chave: sem ele, trocar a voz no
+        # painel devolveria para sempre a URL do áudio da voz anterior, e nada
+        # na tela acusaria isso. `atuais()` é a configuração em cache — esta
+        # função é sincronizada e roda em toda carga de sala.
+        return _voz.com_audios(roteiro, _voz_porta.assinar,
+                               _encontro.perfil_da_voz())
     except Exception:   # noqa: BLE001
         return roteiro
 
@@ -161,6 +166,22 @@ async def create_room(
 
     room_id = f"room_{secrets.token_urlsafe(8)}"
     guest_token = secrets.token_urlsafe(16)
+
+    # O TEXTO FIXO CONFIGURADO entra no retrato, substituindo o que veio do
+    # `schema.ts` do CustomerApp.
+    #
+    # Aqui, e não na leitura da sala, porque é isto que faz o texto CONGELAR:
+    # quem edita o template no painel não muda a tela de uma aula em curso — a
+    # mesma garantia que o roteiro do episódio tem desde a migration 017. O
+    # preço é que a sala criada ontem guarda o texto de ontem, e é o preço
+    # certo: o contrário é a sala trocar a instrução no meio de uma leitura.
+    #
+    # E é ANTES do INSERT porque o que o aquecimento da voz sintetiza tem de
+    # ser o que a sala vai mostrar: sintetizar o texto do `schema.ts` e exibir
+    # o configurado deixaria a sala muda justamente no parágrafo editado.
+    if body.roteiro:
+        body.roteiro = _encontro.aplicar_no_roteiro(
+            body.roteiro, await _encontro.carregar())
     row = await pool().fetchrow(
         """
         INSERT INTO video_rooms

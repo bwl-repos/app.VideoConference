@@ -40,8 +40,16 @@ ESTRAGOS = [
 
     ("a chave perde a VERSAO (trocar a voz nao invalida nada)",
      VOZ,
-     '    digest = hashlib.sha256(f"{VERSAO}|{normalizar(texto)}".encode("utf-8")).hexdigest()',
-     '    digest = hashlib.sha256(normalizar(texto).encode("utf-8")).hexdigest()'),
+     '        f"{VERSAO}|{perfil}|{normalizar(texto)}".encode("utf-8")).hexdigest()',
+     '        f"{perfil}|{normalizar(texto)}".encode("utf-8")).hexdigest()'),
+
+    # O defeito que a configuracao de voz criou: a chave do mp3 e o hash do
+    # TEXTO, e o mesmo texto em duas vozes daria o mesmo endereco. Trocar a voz
+    # no painel serviria o audio da voz velha para sempre, sem erro nenhum.
+    ("a chave perde o PERFIL (trocar a voz serve o audio antigo)",
+     VOZ,
+     '        f"{VERSAO}|{perfil}|{normalizar(texto)}".encode("utf-8")).hexdigest()',
+     '        f"{VERSAO}|{normalizar(texto)}".encode("utf-8")).hexdigest()'),
 
     ("a chave deixa de ir para o prefixo proprio",
      VOZ,
@@ -72,10 +80,10 @@ ESTRAGOS = [
     ("assinatura que falha passa a derrubar a sala",
      VOZ,
      "                try:\n"
-     "                    audios.append(assinar(chave(limpo)))\n"
+     "                    audios.append(assinar(chave(limpo, perfil)))\n"
      "                except Exception:   # noqa: BLE001\n"
      '                    audios.append("")   # voz indisponível não pode quebrar a sala',
-     "                audios.append(assinar(chave(limpo)))"),
+     "                audios.append(assinar(chave(limpo, perfil)))"),
 
     # ── O que se pede ───────────────────────────────────────────────────────
     ("deixa de conferir o bucket e pede tudo, sempre",
@@ -188,13 +196,13 @@ ESTRAGOS = [
 
     ("a recusa do autoplay deixa de seguir para a proxima fala",
      FRONT,
-     "      audio.play().catch(() => pula(i));",
+     "      audio.play().catch(() => segue(i, false));",
      "      audio.play();"),
 
     ("`ended` + recusa na mesma fala passam a engolir uma instrucao",
      FRONT,
-     "    const pula = (i: number) => { if (!morto && i === atual) toca(i + 1); };",
-     "    const pula = (i: number) => { if (!morto) toca(atual + 1); };",),
+     "      if (morto || i !== atual) return;",
+     "      if (morto) return;",),
 
     ("o controle de silenciar aparece para o aluno",
      FRONT,
@@ -214,8 +222,8 @@ ESTRAGOS = [
 
     ("a lista de vozes perde os vazios e desalinha dos itens",
      VOZ,
-     "                vozes[nome] = [_assinar_texto(item, assinar) for item in valor]",
-     "                vozes[nome] = [u for u in (_assinar_texto(i, assinar) for i in valor) if u]"),
+     "                vozes[nome] = [_assinar_texto(item, assinar, perfil) for item in valor]",
+     "                vozes[nome] = [u for u in (_assinar_texto(i, assinar, perfil) for i in valor) if u]"),
 
     ("fixos e campos voltam a ser pedidos duas vezes quando repetem",
      VOZ,

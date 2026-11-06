@@ -26,7 +26,7 @@ from ..auth import get_current_user, optional_user, CurrentUser
 from ..config import settings
 from ..db import pool, tem_coluna, tem_tabela
 from ..realtime.hub import hub
-from ..services import cadencia, comunicacoes, presenca, sorteio, voz_porta
+from ..services import cadencia, comunicacoes, encontro, presenca, sorteio, voz_porta
 from ..services.livekit_service import list_participant_identities
 from ..services.progresso import (
     e_avaliacao_de_pares,
@@ -119,7 +119,10 @@ def _fim_da_etapa(row) -> str | None:
     """
     if "stage_started_at" not in row or not row["stage_started_at"]:
         return None
-    duracao = cadencia.DURACAO_DA_ETAPA.get(row["stage"])
+    # A duração CONFIGURADA (painel admin → `services/encontro.py`), em cache.
+    # `atuais()` não vai ao banco de propósito: esta função monta a resposta de
+    # estado, que é lida no polling de todo mundo que está na aula.
+    duracao = encontro.atuais()["duracoes"].get(row["stage"])
     if not duracao:
         return None
     return (row["stage_started_at"] + timedelta(seconds=duracao)).isoformat()
@@ -350,7 +353,9 @@ async def _aplicar_cadencia(room_id: str, row):
     # Não normalizo aqui de propósito: rebobinar uma aula viva por causa de um
     # valor inesperado é pior que não andar. O log é o que torna o defeito
     # achável, e o host vê o mesmo aviso na tela.
-    if estado.stage not in cadencia.DURACAO_DA_ETAPA:
+    config = await encontro.carregar()
+    params = encontro.parametros(config)
+    if estado.stage not in params.duracoes:
         logger.warning(
             "[cadencia] sala=%s etapa '%s' fora do vocabulario: sem relogio e "
             "sem avanco automatico (schema desatualizado?)", room_id, estado.stage)
@@ -382,7 +387,7 @@ async def _aplicar_cadencia(room_id: str, row):
     # se é o caso é a própria regra, para a condição não viver em dois lugares.
     presentes = (await _presentes(room_id)
                  if cadencia.precisa_de_presenca(estado, agora) else [])
-    d = cadencia.decidir(estado, agora, presentes)
+    d = cadencia.decidir(estado, agora, presentes, params)
 
     if d.acao == "abrir_voto":
         await pool().execute(
@@ -405,8 +410,8 @@ async def _aplicar_cadencia(room_id: str, row):
     elif d.acao == "estender":
         # A etapa recomeça a contar a partir de AGORA menos a duração, mais a
         # tolerância: ela ganha só o empurrão, não outro período inteiro.
-        dur = cadencia.DURACAO_DA_ETAPA.get(estado.stage) or 0
-        novo_inicio = agora - timedelta(seconds=dur) + cadencia.TOLERANCIA
+        dur = params.duracoes.get(estado.stage) or 0
+        novo_inicio = agora - timedelta(seconds=dur) + params.tolerancia
         await pool().execute(
             "UPDATE video_room_openpbl_class "
             "SET stage_started_at=$2, vote_ends_at=NULL, vote_stage=NULL, "

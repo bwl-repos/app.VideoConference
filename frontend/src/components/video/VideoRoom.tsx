@@ -2062,8 +2062,25 @@ function blocosDaEtapa(r: RoteiroSnapshot | null, stage: OpenPblStage): RoteiroB
  *  e a fala do facilitador era a mesma para os dois. Amarrar a voz ao painel
  *  faria o aluno ouvir uma coisa e o host outra. */
 function audiosDaEtapa(r: RoteiroSnapshot | null, stage: OpenPblStage): string[] {
-  return blocosDaEtapa(r, stage).flatMap((b) => b.audios ?? []).filter(Boolean);
+  return blocosDaEtapa(r, stage)
+    .flatMap((b) => (b.audios ?? []).map((url, i) => (url ? comPausa(url, b.pausas?.[i]) : "")))
+    .filter(Boolean);
 }
+
+/** Uma fala e o silêncio que vem DEPOIS dela, num item só da fila.
+ *
+ *  Num item só porque a fila é identificada por `join("\n")` — um array novo a
+ *  cada render reiniciaria a fala, numa tela que re-renderiza muitas vezes por
+ *  segundo (ver `useVozDaEtapa`). Uma segunda lista, de pausas, teria de ser
+ *  mantida alinhada com esta em todos os caminhos que montam a fila (abrir a
+ *  etapa, revelar um card, ↻ repetir) — e desalinhar faria a sala calar no
+ *  lugar errado, sem erro nenhum na tela. */
+function comPausa(url: string, ms?: number): string {
+  return ms && ms > 0 ? `${url}\t${Math.round(ms)}` : url;
+}
+
+const falaDoItem = (item: string) => item.split("\t")[0];
+const pausaDoItem = (item: string) => Number(item.split("\t")[1] || 0);
 
 /** A sala FALA as instruções da etapa, uma após a outra, quando a etapa abre.
  *
@@ -2088,25 +2105,45 @@ function useVozDaEtapa(urls: string[], ativo: boolean) {
     const audio = new Audio();
     let atual = -1;
     let morto = false;
+    let espera: number | undefined;
     const toca = (i: number) => {
       if (morto) return;
       if (i >= lista.length) { setFalando(false); return; }
       atual = i;
-      audio.src = lista[i];
+      audio.src = falaDoItem(lista[i]);
       // `play()` REJEITA em dois casos normais: o navegador não viu gesto do
       // usuário (a aba do gravador) e a URL responde 404 (texto fixo que ainda
       // não tem voz sintetizada). Os dois querem dizer "siga sem áudio".
-      audio.play().catch(() => pula(i));
+      audio.play().catch(() => segue(i, false));
     };
     // Por índice: `ended` e a recusa do `play()` podem chegar os dois para a
     // mesma fala, e sem isto a segunda pularia uma instrução.
-    const pula = (i: number) => { if (!morto && i === atual) toca(i + 1); };
-    const aoTerminar = () => pula(atual);
+    //
+    // `honrarPausa` separa "a fala TERMINOU" de "a fala não aconteceu". A pausa
+    // configurada é o silêncio depois de uma instrução dita; esperá-la depois de
+    // um 404 daria à sala um silêncio no lugar de uma frase — o dobro do
+    // problema, e justamente na sala cuja voz ainda não foi sintetizada.
+    const segue = (i: number, honrarPausa: boolean) => {
+      if (morto || i !== atual) return;
+      const ms = honrarPausa ? pausaDoItem(lista[i]) : 0;
+      if (!ms) { toca(i + 1); return; }
+      espera = window.setTimeout(() => { if (!morto) toca(i + 1); }, ms);
+    };
+    const aoTerminar = () => segue(atual, true);
+    const aoFalhar = () => segue(atual, false);
     audio.addEventListener("ended", aoTerminar);
-    audio.addEventListener("error", aoTerminar);
+    audio.addEventListener("error", aoFalhar);
     setFalando(true);
     toca(0);
-    return () => { morto = true; audio.pause(); audio.src = ""; };
+    return () => {
+      morto = true;
+      // O temporizador da pausa TAMBÉM morre aqui: sem isto, trocar de etapa
+      // durante um silêncio faria a fala da etapa anterior voltar depois, por
+      // cima da nova.
+      if (espera !== undefined) window.clearTimeout(espera);
+      audio.pause();
+      audio.src = "";
+    };
   }, [chave, ativo, silenciado, repeticao]);
   return {
     silenciado,

@@ -14,7 +14,7 @@ import httpx
 from botocore.exceptions import ClientError
 
 from ..config import settings
-from . import voz
+from . import encontro, voz
 from .recording_service import presigned_url, s3_client
 
 logger = logging.getLogger(__name__)
@@ -63,24 +63,58 @@ def guardar(chave: str, mp3: bytes) -> None:
     )
 
 
-async def sintetizar(texto: str) -> bytes:
-    """Pede ao CoreService o mp3 de um parágrafo.
+async def sintetizar(texto: str, pedido: dict | None = None) -> bytes:
+    """Pede ao CoreService o mp3 de um parágrafo, na voz configurada.
 
     O corpo da resposta É o áudio. O erro traz o código HTTP e um trecho do
     corpo porque os dois modos de falha interessantes são indistinguíveis sem
-    eles: 401 é segredo divergente, 503 é Polly sem permissão do lado de lá.
+    eles: 401 é segredo divergente, 503 é motor sem permissão do lado de lá.
+
+    `pedido` são provedor e voz (`encontro.pedido_de_voz`). Omitido, o
+    CoreService usa o padrão dele — que é a Camila generativa de sempre, e é o
+    que mantém este caminho funcionando contra um CoreService antigo, que ainda
+    não conhece os campos novos.
     """
     base = (settings.voz_core_url or "").strip().rstrip("/")
     async with httpx.AsyncClient(timeout=TIMEOUT_S) as cliente:
         r = await cliente.post(
             f"{base}/api/voz/sintetizar",
-            json={"texto": texto},
+            json={"texto": texto, **(pedido or {})},
             headers={"X-Voz-Token": (settings.voz_core_token or "").strip()},
         )
     if r.status_code != 200:
         raise RuntimeError(f"CoreService respondeu {r.status_code}: {r.text[:200]}")
     logger.info("[voz] sintetizada pelo core (cache=%s)", r.headers.get("X-Voz-Cache", "?"))
     return r.content
+
+
+async def garantir_textos(textos: list[str]) -> dict[str, int]:
+    """Sintetiza o que falta destes textos, na voz CONFIGURADA.
+
+    Separado de `preparar` porque há dois chamadores com origens diferentes: a
+    criação da sala (que parte de um roteiro) e o painel admin, que acabou de
+    trocar a voz e quer pagar a síntese AGORA — senão a conta cai na primeira
+    sala criada depois, que é justamente quem não devia esperar.
+
+    O perfil da voz entra na CHAVE (ver `voz.chave`) e no pedido ao CoreService,
+    e os dois saem da mesma configuração: desencontrá-los gravaria o áudio da
+    voz nova no endereço da voz velha.
+    """
+    if not configurado():
+        logger.info("[voz] VOZ_CORE_URL/VOZ_CORE_TOKEN ausentes: encontro sem audio")
+        return {"desligado": 1}
+    if not textos:
+        return {"pedidos": 0, "prontos": 0, "falhas": 0, "ja_tinha": 0}
+    config = await encontro.carregar()
+    pedido = encontro.pedido_de_voz(config)
+    contas = await voz.garantir(
+        textos, tem=tem,
+        sintetizar=lambda t: sintetizar(t, pedido),
+        guardar=guardar,
+        perfil=encontro.perfil_da_voz(config),
+    )
+    logger.info("[voz] %s textos (%s): %s", len(textos), pedido.get("voz"), contas)
+    return contas
 
 
 async def preparar(roteiro) -> dict[str, int]:
@@ -90,14 +124,4 @@ async def preparar(roteiro) -> dict[str, int]:
     acontece dias antes da aula, e a abertura acontece com os alunos esperando.
     Idempotente — depois da primeira sala, só confere que já existe.
     """
-    if not configurado():
-        logger.info("[voz] VOZ_CORE_URL/VOZ_CORE_TOKEN ausentes: encontro sem audio")
-        return {"desligado": 1}
-    textos = voz.textos_do_roteiro(roteiro)
-    if not textos:
-        return {"pedidos": 0, "prontos": 0, "falhas": 0, "ja_tinha": 0}
-    contas = await voz.garantir(
-        textos, tem=tem, sintetizar=sintetizar, guardar=guardar
-    )
-    logger.info("[voz] %s textos: %s", len(textos), contas)
-    return contas
+    return await garantir_textos(voz.textos_do_roteiro(roteiro))

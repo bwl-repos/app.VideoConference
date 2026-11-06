@@ -12,9 +12,16 @@ dúvidas:
 
 | o quê | onde vive | muda por episódio? |
 |---|---|---|
-| **Texto fixo** das seções (instruções de presença, dinâmica da plenária, critérios de risco) | `CustomerAppDomain/src/features/course-management/roteiro/schema.ts` | **Não.** É igual em todo episódio de toda série |
+| **Texto fixo** das seções (instruções de presença, dinâmica da plenária, critérios de risco) | **painel admin → Encontro** (tabela `encontro_template`; de fábrica, o que está no `schema.ts`) | **Não.** É igual em todo episódio de toda série |
 | **Conteúdo variável** (sinopse, questões, riscos, títulos, banner) | roteiro do episódio, preenchido em *Gerenciar produção → Roteiro da Videoconferência* | **Sim** |
-| **Ordem e tempo** das etapas | `backend/app/services/cadencia.py` | Não |
+| **Tempo** de cada etapa, pausas e **a voz** | **painel admin → Encontro** | Não |
+| **Ordem** das etapas | `backend/app/services/cadencia.py` (código) | Não |
+
+> [!tip] O que se configura sem deploy, e o que não
+> O painel ajusta **tempos, textos, pausas e voz**. A **ordem** das etapas não: ela está
+> em três arquivos de código que não se importam, e mexer nela é mudança de produto com
+> prova própria. Os temporizadores e a voz valem **na hora**, inclusive em sala já
+> aberta; os textos entram no retrato da sala **na criação**.
 
 O roteiro é **congelado na sala** no momento em que ela é criada. Editar o roteiro do
 episódio depois disso não muda uma sala já criada — e é de propósito: um encontro não
@@ -356,6 +363,12 @@ depende de haver um agente de voz de pé.
 | ao abrir uma etapa | o texto fixo da etapa — **se for diferente** do que acabou de ler |
 | ao revelar um card | **só o card que entrou** |
 
+Entre um parágrafo e o seguinte ela espera a **pausa** configurada para aquele parágrafo
+(painel admin → Encontro). A pausa é um número, não silêncio sintetizado: ajustá-la não
+refaz áudio nenhum. Depois de um parágrafo que **não** tocou (voz ainda não sintetizada,
+ou aba sem gesto do usuário) a pausa **não** é esperada — silêncio no lugar de uma frase
+que não foi dita seria o dobro do problema.
+
 Nunca lê: títulos de bloco, a vinheta da série, o campo `bannerFundo` (é chave de
 imagem — a sala diria "banner barra ep5 ponto png"), nem a tela do gráfico.
 
@@ -375,7 +388,7 @@ sem voz é um encontro; um encontro travado esperando o sintetizador não é.
 
 ## Como o áudio existe
 
-O mp3 de um texto é gravado num endereço que é o **hash do próprio texto**. Disso saem
+O mp3 de um texto é gravado num endereço que é o **hash do texto mais a voz**. Disso saem
 três coisas de graça:
 
 - a **primeira sala** de um episódio paga a síntese; as seguintes não pedem nada — e os
@@ -385,8 +398,13 @@ três coisas de graça:
   realmente perigoso aqui);
 - **nada é gravado no banco**: o endereço se recalcula do texto a cada carga da sala.
 
+- e **trocar a voz** também gera endereços novos, em vez de servir o áudio da voz
+  anterior para sempre. Voltar para a voz antiga reaproveita o que já existe.
+
 A síntese acontece **ao criar a sala**, em segundo plano. Se falhar, o host tem uma rota
-para refazer só o que falta.
+para refazer só o que falta — e o painel admin tem o botão
+`⚡ Sintetizar todo o texto fixo`, que é o que se usa **depois de trocar a voz ou editar
+texto**: sem ele, a conta da síntese cai na primeira sala criada em seguida.
 
 ---
 
@@ -408,14 +426,23 @@ para refazer só o que falta.
 
 # Onde mexer
 
-| para mudar | arquivo |
+| para mudar | onde |
 |---|---|
-| o texto fixo de uma seção, ou acrescentar uma seção | `CustomerAppDomain/.../roteiro/schema.ts` |
-| a ordem das etapas | `cadencia.py` (`ORDEM`), `openpbl_class.py` (`_STAGES`) **e** `VideoRoom.tsx` (`STEPS`) — as três, sempre |
-| a duração de uma etapa | `cadencia.py` (`DURACAO_DA_ETAPA`) |
-| quanto da turma precisa dizer "sim" | `cadencia.py` (`LIMIAR_DE_AVANCO`) |
-| que seção aparece em que etapa | `VideoRoom.tsx` (`secaoDaEtapa`) — e a voz segue junto |
-| a voz (timbre, motor) | `openbpl.CoreService/app/api/routers/voz.py`; mudar exige subir `VERSAO` em `backend/app/services/voz.py` |
+| a duração de uma etapa | **painel admin → Encontro** |
+| quanto da turma precisa dizer "sim", a janela do voto, a tolerância | **painel admin → Encontro** |
+| o texto fixo de uma seção, e a pausa depois de cada parágrafo | **painel admin → Encontro** |
+| a voz que lê (Polly ou ElevenLabs, e qual voz) | **painel admin → Encontro** — e depois `⚡ Sintetizar todo o texto fixo`, senão a primeira sala criada é que espera |
+| o padrão de fábrica dos tempos | `cadencia.py` (`DURACAO_DA_ETAPA`, `LIMIAR_DE_AVANCO`) — vale para quem nunca configurou |
+| o padrão de fábrica dos textos | `encontro.py` (`SECOES_BASE`); o `schema.ts` do CustomerApp segue alimentando o formulário do curador, mas o que a sala mostra vem do template |
+| a ordem das etapas | `cadencia.py` (`ORDEM`), `openpbl_class.py` (`_STAGES`) **e** `VideoRoom.tsx` (`STEPS`) — as três, sempre, mais `encontro.CATALOGO` |
+| que seção aparece em que etapa | `VideoRoom.tsx` (`secaoDaEtapa`) **e** `encontro.CATALOGO` — a voz e o painel seguem junto |
+
+> [!important] A tela de configuração é a quarta leitura da lista de etapas
+> `encontro.CATALOGO` deriva a ordem de `cadencia.ORDEM`, mas repete título, ação e seção
+> de cada etapa — porque o backend não lê o frontend.
+> `backend/provas/prova_template_do_encontro.py` compara os três (`STEPS`, `secaoDaEtapa`,
+> `CATALOGO`) e falha se qualquer um divergir. Divergir aqui faz o painel prometer uma
+> ação que o ▶ não executa, ou configurar a duração de uma etapa que não existe.
 
 > [!important] A ordem das etapas vive em **três** arquivos
 > Nenhum importa o outro, e divergirem **não dá erro**: a sala entra numa etapa que a

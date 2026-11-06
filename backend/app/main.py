@@ -8,7 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import settings
 from .db import init_pool, close_pool, pool
 from . import logbuffer
-from .routers import rooms, token, chat, lobby, invites, whiteboard, recording, ws, backgrounds, admin, internal, client, breakouts, openpbl_class
+from .services import encontro as encontro_service
+from .routers import rooms, token, chat, lobby, invites, whiteboard, recording, ws, backgrounds, admin, internal, client, breakouts, openpbl_class, encontro
 
 APP_VERSION = "1.0.0"
 
@@ -19,6 +20,13 @@ log = logging.getLogger("bwl")
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     await init_pool()
+    # A tabela do template do encontro nasce aqui, e nao numa migration
+    # aplicada a mao: publicar NAO aplica migration neste repositorio (ver
+    # `db.tem_coluna`), e a 013 passou meses fora de producao enquanto o
+    # codigo ja contava com ela. Tabela nova e vazia e o caso em que criar na
+    # subida nao tem risco: nada a migrar, nada a perder. Falhar aqui nao
+    # derruba o servico -- sem a tabela, o template e o padrao do codigo.
+    await encontro_service.garantir_tabela()
     log.info(json.dumps({"evt": "startup", "version": APP_VERSION}))
     yield
     await close_pool()
@@ -71,6 +79,7 @@ app.include_router(recording.router)
 app.include_router(recording.webhook_router)
 app.include_router(backgrounds.router)
 app.include_router(admin.router)
+app.include_router(encontro.router)
 app.include_router(internal.router)
 app.include_router(client.router)
 app.include_router(ws.router)

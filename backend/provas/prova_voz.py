@@ -154,7 +154,24 @@ depois = voz.chave("Aponte o smartphone")
 voz.VERSAO = str(int(voz.VERSAO) - 1)
 conferir(antes != depois and voz.chave("Aponte o smartphone") == antes,
          "bumpar VERSAO invalida TODO o cache",
-         "a voz é escolhida no CoreService; se mudar lá, isto é o que troca aqui")
+         "a saída para o que o perfil não descreve (timbre que mudou do lado de lá)")
+
+# ── 1b. E A VOZ ENTRA NA CHAVE ──────────────────────────────────────────────
+#
+# A voz passou a ser CONFIGURADA no painel admin. Sem o perfil no hash, o mesmo
+# texto em duas vozes daria o mesmo endereço: o objeto da voz anterior já estaria
+# no bucket, e a sala falaria com a voz velha para sempre. O sintoma é a
+# configuração "não funcionar" — e nada erra em lugar nenhum.
+conferir(voz.chave("Aponte", "polly:Camila:generative")
+         != voz.chave("Aponte", "elevenlabs:abc123"),
+         "a VOZ entra na chave: texto igual, voz outra, endereço outro",
+         "sem isto, trocar a voz no painel serviria o audio da voz anterior")
+conferir(voz.chave("Aponte", "elevenlabs:abc123")
+         == voz.chave("Aponte", "elevenlabs:abc123"),
+         "e a mesma voz com o mesmo texto não paga duas vezes")
+conferir(voz.chave("Aponte", "polly:Camila") != voz.chave("Aponte"),
+         "CONTROLE: perfil vazio não é um perfil qualquer",
+         "senão a voz de fábrica e uma voz escolhida dividiriam o mesmo objeto")
 
 print()
 print("2) quais parágrafos a sala precisa falar")
@@ -396,10 +413,10 @@ conferir("audiosDaEtapa(roteiro, pblStage)" in FRONT
 conferir("!isBroadcast(identity || \"\")" in FRONT,
          "a aba espelho do grupo fica muda",
          "é a mesma pessoa duas vezes: ouviria a instrução em dobro")
-conferir("audio.play().catch(() => pula(i))" in FRONT,
+conferir("audio.play().catch(() => segue(i, false))" in FRONT,
          "recusa do navegador ou 404 seguem para a próxima fala",
          "autoplay sem gesto (aba do gravador) e texto sem voz são normais")
-conferir("if (!morto && i === atual)" in FRONT,
+conferir("if (morto || i !== atual) return;" in FRONT,
          "e `ended` + recusa na mesma fala não pulam duas",
          "sem o índice, uma instrução seria engolida")
 conferir("{pblActive && amStaff && temVozNaEtapa && (" in FRONT,
