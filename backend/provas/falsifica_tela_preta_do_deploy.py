@@ -110,8 +110,39 @@ ESTRAGOS = [
 
     ("o aviso vira uma caixa vazia",
      MAIN,
-     "        <div style=\"font-size:17px;font-weight:600\">Esta página está desatualizada</div>",
-     '        <div style="font-size:17px;font-weight:600"></div>'),
+     '    "Esta página está desatualizada",',
+     '    "",'),
+
+    # ── E QUALQUER OUTRA FALHA VOLTA A SER PRETA E MUDA ─────────────────────
+    ("a barreira de erro some do render (excecao apaga a pagina inteira)",
+     MAIN,
+     "  <BarreiraDeErro>\n",
+     ""),
+
+    ("a barreira existe mas para de capturar",
+     MAIN,
+     "  static getDerivedStateFromError(erro: any) {",
+     "  static naoCapturaMais(erro: any) {"),
+
+    ("o erro de fora do React deixa de ser relatado",
+     MAIN,
+     'window.addEventListener("error", (e) => relatarSeTelaVazia(\n',
+     'const naoRelataMais = ((e: any) => relatarSeTelaVazia(\n'),
+
+    ("a promessa recusada deixa de ser relatada",
+     MAIN,
+     'window.addEventListener("unhandledrejection", (e) => relatarSeTelaVazia(\n',
+     'const tambemNaoRelata = ((e: any) => relatarSeTelaVazia(\n'),
+
+    ("o aviso passa a apagar a tela de quem esta usando o sistema",
+     MAIN,
+     "  if (!raizVazia()) return;\n",
+     ""),
+
+    ("a mensagem do erro some da tela (volta a precisar do console do usuario)",
+     MAIN,
+     "    detalhe.slice(0, 300));",
+     '    "");'),
 
     # ── E A PROSA NAO PODE SUSTENTAR A AFIRMACAO ────────────────────────────
     #

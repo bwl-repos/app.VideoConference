@@ -384,18 +384,24 @@ function podeRecarregar(): boolean {
   }
 }
 
-function avisarQueFaltaRecarregar() {
+/** A tela de falha, escrita direto no DOM.
+ *
+ *  No DOM e não em React de propósito: ela precisa funcionar justamente quando
+ *  o React não está de pé — é o caso de um módulo que não carregou e o de um
+ *  erro no meio da montagem. `detalhe` é a mensagem do erro, e ela aparece na
+ *  TELA: quem vê o problema costuma ser quem não tem como abrir o console, e
+ *  uma foto da tela precisa bastar para diagnosticar. */
+function mostrarFalha(titulo: string, explicacao: string, detalhe = "") {
   const raiz = document.getElementById("root");
   if (!raiz) return;
   raiz.innerHTML = `
     <div style="min-height:100%;display:grid;place-items:center;padding:24px;
                 font-family:Inter,system-ui,sans-serif;color:#e7e9ee;text-align:center">
-      <div style="max-width:420px;display:grid;gap:12px">
-        <div style="font-size:17px;font-weight:600">Esta página está desatualizada</div>
-        <div style="font-size:14px;line-height:1.5;color:#a8aeba">
-          O sistema foi atualizado enquanto esta aba estava aberta. Recarregue
-          segurando <strong>Ctrl</strong> (ou <strong>⌘</strong>) para buscar a versão nova.
-        </div>
+      <div style="max-width:460px;display:grid;gap:12px">
+        <div style="font-size:17px;font-weight:600">${titulo}</div>
+        <div style="font-size:14px;line-height:1.5;color:#a8aeba">${explicacao}</div>
+        ${detalhe ? `<code style="font-size:12px;color:#8a909a;background:#16181f;
+          border-radius:8px;padding:8px 10px;word-break:break-word">${detalhe}</code>` : ""}
         <button id="recarregar" style="justify-self:center;background:#e11d2a;color:#fff;
                 border:none;border-radius:9px;padding:10px 18px;font-weight:600;cursor:pointer">
           Recarregar
@@ -408,6 +414,84 @@ function avisarQueFaltaRecarregar() {
   });
 }
 
+function avisarQueFaltaRecarregar() {
+  mostrarFalha(
+    "Esta página está desatualizada",
+    "O sistema foi atualizado enquanto esta aba estava aberta. Recarregue " +
+    "segurando <strong>Ctrl</strong> (ou <strong>⌘</strong>) para buscar a versão nova.");
+}
+
+// ── QUALQUER OUTRA FALHA TAMBÉM PRECISA APARECER ────────────────────────────
+//
+// O `vite:preloadError` acima cobre o módulo que não CARREGA. Mas um erro ao
+// MONTAR a tela (uma exceção no meio da renderização, uma API do navegador que
+// este navegador não tem, um bloqueio de armazenamento) produz exatamente o
+// mesmo sintoma — React desmonta a árvore, `#root` fica vazio, e o fundo
+// escuro do `body` entrega uma TELA PRETA sem uma palavra.
+//
+// Em 06/11/2026 isso custou caro: a tela preta de um usuário não dava para
+// diagnosticar daqui, porque a única fonte era o console DELE. Com a mensagem
+// na tela, uma foto basta.
+//
+// `#root` VAZIO é a guarda: um erro assíncrono qualquer, com o app já
+// desenhado, não pode apagar a tela de quem está usando o sistema.
+function raizVazia(): boolean {
+  const raiz = document.getElementById("root");
+  return !!raiz && raiz.childElementCount === 0;
+}
+
+function relatarSeTelaVazia(detalhe: string) {
+  if (!raizVazia()) return;
+  mostrarFalha(
+    "Esta página não conseguiu carregar",
+    "Recarregue segurando <strong>Ctrl</strong> (ou <strong>⌘</strong>). Se continuar " +
+    "assim, envie esta tela para o suporte — a linha abaixo diz o que falhou.",
+    detalhe.slice(0, 300));
+}
+
+window.addEventListener("error", (e) => relatarSeTelaVazia(
+  String(e.message || (e.error && e.error.message) || e.error || "")));
+window.addEventListener("unhandledrejection", (e) => relatarSeTelaVazia(
+  String((e as PromiseRejectionEvent).reason ?? "")));
+
+/** O mesmo, para o que acontece DENTRO do React.
+ *
+ *  Sem esta barreira, uma exceção em qualquer tela desmonta a árvore inteira e
+ *  não sobra nada na página — o React faz isso de propósito desde a 16, para
+ *  não deixar uma interface meio desenhada no ar. O preço é que, sem barreira,
+ *  "meio desenhada" vira "nada", e nada é indistinguível de um site fora do ar. */
+class BarreiraDeErro extends React.Component<
+  { children: React.ReactNode }, { erro: string }
+> {
+  state = { erro: "" };
+
+  static getDerivedStateFromError(erro: any) {
+    return { erro: String(erro?.message || erro || "erro desconhecido") };
+  }
+
+  render() {
+    if (!this.state.erro) return this.props.children;
+    return (
+      <div style={{ minHeight: "100%", display: "grid", placeItems: "center", padding: 24,
+                    color: "#e7e9ee", textAlign: "center" }}>
+        <div style={{ maxWidth: 460, display: "grid", gap: 12 }}>
+          <div style={{ fontSize: 17, fontWeight: 600 }}>Esta tela falhou ao abrir</div>
+          <div style={{ fontSize: 14, lineHeight: 1.5, color: "#a8aeba" }}>
+            O resto do sistema continua funcionando. Recarregue a página; se o erro
+            voltar, envie esta tela para o suporte.
+          </div>
+          <code style={{ fontSize: 12, color: "#8a909a", background: "#16181f",
+                         borderRadius: 8, padding: "8px 10px", wordBreak: "break-word" }}>
+            {this.state.erro.slice(0, 300)}
+          </code>
+          <button className="ad-btn" style={{ justifySelf: "center" }}
+            onClick={() => window.location.reload()}>Recarregar</button>
+        </div>
+      </div>
+    );
+  }
+}
+
 window.addEventListener("vite:preloadError" as any, (e: Event) => {
   // `preventDefault` impede o Vite de relançar o erro: quem trata somos nós.
   e.preventDefault();
@@ -416,6 +500,7 @@ window.addEventListener("vite:preloadError" as any, (e: Event) => {
 });
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
+  <BarreiraDeErro>
   <SDKContext.Provider value={sdk}>
     <BrowserRouter>
       <Routes>
@@ -430,5 +515,6 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <Route path="/documentation" element={<Suspense fallback={null}><Documentation /></Suspense>} />
       </Routes>
     </BrowserRouter>
-  </SDKContext.Provider>,
+  </SDKContext.Provider>
+  </BarreiraDeErro>,
 );

@@ -123,22 +123,57 @@ conferir("sessionStorage.getItem(MARCA_DE_RECARGA)" in MAIN
          and "sessionStorage.setItem(MARCA_DE_RECARGA" in MAIN,
          "a recarga e marcada antes de acontecer",
          "sem a marca, o modulo que falta de verdade vira laco infinito")
-recarrega = MAIN[MAIN.index("function podeRecarregar"):]
-recarrega = recarrega[:recarrega.index("function avisarQueFaltaRecarregar")]
+def corpo(nome: str) -> str:
+    """O corpo de uma funcao, ate a chave que a fecha na coluna 0.
+
+    Por FUNCAO, e nao por um trecho entre duas delas: o arquivo ganhou outra
+    funcao no meio, e a fatia antiga passou a medir o `catch` errado -- sem
+    nenhum defeito no codigo.
+    """
+    t = MAIN[MAIN.index(nome):]
+    return t[:t.index(chr(10) + "}") + 2]
+
+recarrega = corpo("function podeRecarregar")
 conferir("return false" in recarrega.split("catch")[-1],
          "e sem `sessionStorage` ela NAO acontece",
          "aba anonima sem storage nao lembra a tentativa: recarregar seria laco")
 conferir("else avisarQueFaltaRecarregar()" in MAIN,
          "esgotada a recarga, a tela DIZ o que houve",
          "preto nao e uma mensagem")
-aviso = MAIN[MAIN.index("function avisarQueFaltaRecarregar"):]
-aviso = aviso[:aviso.index("window.addEventListener")]
-conferir("desatualizada" in aviso and "Recarregar" in aviso,
+tela_de_falha = corpo("function mostrarFalha")
+conferir("desatualizada" in corpo("function avisarQueFaltaRecarregar")
+         and "Recarregar" in tela_de_falha,
          "com texto em portugues e um botao de recarregar",
          "quem ve a tela nao sabe o que e um chunk")
-conferir("sessionStorage.removeItem(MARCA_DE_RECARGA)" in aviso,
+conferir("sessionStorage.removeItem(MARCA_DE_RECARGA)" in tela_de_falha,
          "e o botao limpa a marca antes de recarregar",
          "senao o clique recarrega para o mesmo aviso, para sempre")
+
+print()
+print("3b) e QUALQUER outra falha tambem vira texto na tela")
+print()
+
+#: O `vite:preloadError` cobre o modulo que nao CARREGA. Um erro ao MONTAR a
+#: tela da o mesmo sintoma -- o React desmonta a arvore, `#root` fica vazio e o
+#: fundo escuro entrega uma tela preta sem uma palavra. Em 06/11/2026 isso
+#: custou um diagnostico que so o console do usuario tinha.
+conferir("class BarreiraDeErro" in MAIN
+         and "static getDerivedStateFromError" in MAIN,
+         "existe barreira de erro para o que falha DENTRO do React",
+         "sem ela, uma excecao em uma tela apaga a pagina inteira")
+conferir("<BarreiraDeErro>" in MAIN and "</BarreiraDeErro>" in MAIN,
+         "e a arvore inteira esta dentro dela",
+         "declarar a classe sem usa-la e o jeito silencioso de nao ter barreira")
+conferir('addEventListener("error"' in MAIN
+         and 'addEventListener("unhandledrejection"' in MAIN,
+         "e o que acontece FORA do React tambem e relatado",
+         "modulo que lanca no import nunca chega a montar o React")
+conferir("if (!raizVazia()) return;" in MAIN,
+         "mas so quando a tela esta VAZIA",
+         "um erro assincrono nao pode apagar a tela de quem esta usando")
+conferir("detalhe.slice(0, 300)" in MAIN and "this.state.erro.slice(0, 300)" in MAIN,
+         "e a mensagem do erro aparece NA TELA, cortada",
+         "quem ve a tela preta nao costuma ter como abrir o console: a foto basta")
 
 print()
 print("4) CONTROLE: o que ja funcionava continua de pe")
