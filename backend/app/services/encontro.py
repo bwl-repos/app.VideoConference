@@ -588,6 +588,27 @@ def perfil_da_voz(config: dict[str, Any] | None = None) -> str:
     return ":".join(p for p in partes if p)
 
 
+def escolha_de_voz(bruta: Any, config: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Uma voz pedida de fora, validada, pronta para virar perfil e pedido.
+
+    O painel age sobre a voz que está NA TELA, que pode não estar salva — foi
+    exatamente a confusão que apareceu em produção: trocar a voz, mandar
+    sintetizar e ouvir a voz antiga, porque os dois botões liam a configuração
+    salva enquanto os TEXTOS vinham da tela. Metade honrando a tela e metade
+    não é pior que nenhuma das duas.
+
+    Passa pela MESMA validação da configuração salva (`normalizar`): um
+    provedor inventado vindo do corpo da requisição não pode virar endereço de
+    bucket, senão um pedido malformado grava áudio num lugar que nada mais
+    encontra.
+
+    Vazio devolve a configuração corrente — o padrão de quem não pediu nada.
+    """
+    if not isinstance(bruta, dict) or not (bruta.get("voz") or bruta.get("provedor")):
+        return config or atuais()
+    return {"voz": normalizar({"voz": bruta})["voz"]}
+
+
 def pedido_de_voz(config: dict[str, Any] | None = None) -> dict[str, str]:
     """O que vai no corpo do `POST /api/voz/sintetizar` do CoreService."""
     v = (config or atuais()).get("voz") or VOZ_PADRAO

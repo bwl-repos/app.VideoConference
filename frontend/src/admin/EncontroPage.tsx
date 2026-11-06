@@ -323,7 +323,8 @@ function DetalheDaEtapa({ etapa, etapas, cfg, setCfg, padrao, avancaSozinha, voz
             Fase: {etapa.titulo} · <code>{etapa.id}</code>
           </div>
         </div>
-        <EnsaioDaEtapa etapa={etapa} blocos={blocos.map((b) => b.bloco)} ligada={vozLigada} />
+        <EnsaioDaEtapa etapa={etapa} blocos={blocos.map((b) => b.bloco)} ligada={vozLigada}
+          voz={cfg.voz} />
       </header>
 
       <div className="enc-cartoes">
@@ -598,8 +599,8 @@ function PreviewDaEtapa({ etapa, cfg, dados }: {
  *  pausa e ouvir antes de gravar. O servidor sintetiza o que faltar e devolve a
  *  URL do MESMO objeto que a sala tocaria (mesma chave, mesmo perfil de voz),
  *  então o que se ouve aqui é o que a aula vai ouvir. */
-function EnsaioDaEtapa({ etapa, blocos, ligada }: {
-  etapa: Etapa; blocos: Bloco[]; ligada: boolean;
+function EnsaioDaEtapa({ etapa, blocos, ligada, voz }: {
+  etapa: Etapa; blocos: Bloco[]; ligada: boolean; voz: Config["voz"];
 }) {
   const [carregando, setCarregando] = useState(false);
   const [tocando, setTocando] = useState(-1);
@@ -649,6 +650,10 @@ function EnsaioDaEtapa({ etapa, blocos, ligada }: {
     try {
       const corpo = {
         etapa: etapa.id,
+        // A VOZ DA TELA, nao a salva. Mandar so os textos e deixar a voz para
+        // o servidor fazia o ensaio tocar a voz ANTERIOR depois de trocar de
+        // voz -- metade do ensaio honrando a tela e metade nao.
+        voz,
         falas: blocos.flatMap((b) => b.paragrafos
           .map((texto, i) => ({ texto, pausa_ms: b.pausas[i] ?? 0 }))
           .filter((f) => f.texto.trim())),
@@ -755,10 +760,15 @@ function PainelDaVoz({ cfg, setCfg, provedores, aviso, ligada }: {
   const aquecer = async () => {
     setAquecendo(true); setAquecimento("");
     try {
-      const r = await adminApi<any>("/encontro/aquecer", { method: "POST" });
+      const r = await adminApi<any>("/encontro/aquecer", {
+        method: "POST", body: JSON.stringify({ voz: cfg.voz }),
+      });
       setAquecimento(r.desligado
         ? "voz desligada neste serviço"
-        : `${r.textos} textos · ${r.prontos} sintetizados · ${r.ja_tinha} já existiam`
+        // O NOME DA VOZ no resultado: sem ele, "18 sintetizados" nao diz em QUE
+        // voz, e foi assim que uma sintese na voz anterior passou por boa.
+        : `${r.textos} textos na voz ${r.voz?.rotulo || r.voz?.voz || "?"} · `
+          + `${r.prontos} sintetizados · ${r.ja_tinha} já existiam`
           + (r.falhas ? ` · ${r.falhas} falharam (ver o log)` : ""));
     } catch (e: any) {
       setAquecimento(String(e.message || e));
@@ -845,10 +855,11 @@ function PainelDaVoz({ cfg, setCfg, provedores, aviso, ligada }: {
       </div>
       {previaErro && <div className="ad-err">{previaErro}</div>}
       <p className="ad-muted enc-nota">
-        A prévia usa a voz <strong>selecionada</strong>, mesmo antes de salvar — e o áudio
-        fica guardado, então ouvir já adianta a síntese. O botão de sintetizar todo o
-        texto usa a voz <strong>salva</strong>: é o que evita que a primeira sala criada
-        depois da troca seja quem paga a espera.
+        Tudo aqui — a prévia, o ensaio das etapas e a síntese do texto fixo — usa a voz
+        <strong> selecionada acima</strong>, mesmo antes de salvar, e o áudio fica
+        guardado: ouvir já adianta a síntese. O que a <strong>sala</strong> vai tocar é a
+        voz <strong>salva</strong> — enquanto houver “alterações não salvas”, o encontro
+        ainda fala com a voz anterior.
       </p>
     </section>
   );

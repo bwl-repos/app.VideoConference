@@ -65,12 +65,25 @@ class FalaDoEnsaio(BaseModel):
     pausa_ms: int = 0
 
 
+class VozEscolhida(BaseModel):
+    provedor: str = ""
+    voz: str = ""
+    motor: str = ""
+
+
 class Ensaio(BaseModel):
     #: Só para o log e para a resposta: quem decide o que se ouve são as falas.
     etapa: str = ""
     #: O que está NA TELA de quem configura, salvo ou não. É o ponto do ensaio:
     #: ajustar uma palavra e a pausa e ouvir o resultado antes de gravar.
     falas: list[FalaDoEnsaio] = Field(default_factory=list, max_length=TETO_DE_FALAS)
+    #: E a VOZ da tela, pela mesma razão. Ausente = a salva.
+    voz: VozEscolhida | None = None
+
+
+class Aquecimento(BaseModel):
+    #: A voz a sintetizar. Ausente = a salva (é o que a sala vai tocar).
+    voz: VozEscolhida | None = None
 
 
 @router.get("")
@@ -209,8 +222,13 @@ async def ensaio(corpo: Ensaio, _admin: dict = Depends(require_admin)):
                           for f in falas],
                 "voz": encontro.atuais()["voz"], "desligado": 1}
 
-    contas = await voz_porta.garantir_textos([f.texto for f in falas])
-    config = await encontro.carregar()
+    # A VOZ DA TELA, se veio; senão a salva. E o perfil usado para ASSINAR sai
+    # da mesma escolha que foi usada para SINTETIZAR — endereço e conteúdo têm
+    # de vir do mesmo lugar, senão o mp3 de uma voz fica guardado no endereço
+    # de outra, e isso não se desfaz trocando a configuração de volta.
+    config = encontro.escolha_de_voz(
+        corpo.voz.model_dump() if corpo.voz else None, await encontro.carregar())
+    contas = await voz_porta.garantir_textos([f.texto for f in falas], config)
     perfil = encontro.perfil_da_voz(config)
     saida = []
     for f in falas:
@@ -225,7 +243,8 @@ async def ensaio(corpo: Ensaio, _admin: dict = Depends(require_admin)):
 
 
 @router.post("/aquecer")
-async def aquecer(_admin: dict = Depends(require_admin)):
+async def aquecer(corpo: Aquecimento | None = None,
+                  _admin: dict = Depends(require_admin)):
     """Sintetiza TODO o texto fixo configurado, na voz corrente.
 
     É o botão para usar depois de trocar a voz: sem ele, a conta da síntese cai
@@ -241,8 +260,14 @@ async def aquecer(_admin: dict = Depends(require_admin)):
     for secao in config["secoes"]:
         for bloco in secao["blocos"]:
             textos.extend(bloco["paragrafos"])
-    contas = await voz_porta.garantir_textos(textos)
-    return {"textos": len(textos), "voz": config["voz"], **contas}
+    # A voz PEDIDA, se veio: quem acabou de escolher uma voz no painel e manda
+    # sintetizar espera que seja AQUELA. Ler a salva aqui fazia o botão dizer
+    # "18 textos sintetizados" com a voz anterior — e o ensaio em seguida
+    # devolvia a voz antiga, sem nada explicando.
+    escolha = encontro.escolha_de_voz(
+        corpo.voz.model_dump() if corpo and corpo.voz else None, config)
+    contas = await voz_porta.garantir_textos(textos, escolha)
+    return {"textos": len(textos), "voz": escolha["voz"], **contas}
 
 
 async def _tem_tabela() -> bool:

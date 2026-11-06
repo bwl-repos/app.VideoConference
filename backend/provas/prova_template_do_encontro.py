@@ -341,6 +341,35 @@ conferir("if not voz_porta.configurado():" in ensaio,
          "sem voz configurada ele devolve as falas sem URL, e nao 503",
          "ler a etapa na ordem ainda serve quando nao ha audio")
 
+#: A VOZ DO ENSAIO E A DA TELA, e o ENDERECO sai da MESMA escolha.
+#:
+#: Aconteceu em producao: trocar a voz, mandar sintetizar, ensaiar -- e ouvir a
+#: voz ANTERIOR, porque os textos vinham da tela e a voz vinha do banco. Metade
+#: honrando a tela e metade nao.
+#:
+#: E a segunda asercao e a perigosa: se a sintese usasse uma escolha e a
+#: assinatura outra, o mp3 de uma voz ficaria guardado no ENDERECO de outra --
+#: e isso nao se desfaz trocando a configuracao de volta, porque o objeto
+#: errado fica no bucket, com a chave certa, para sempre.
+conferir("encontro.escolha_de_voz(" in ensaio,
+         "o ensaio aceita a voz que esta NA TELA, ainda nao salva",
+         "senao trocar a voz e ensaiar devolve a voz anterior")
+conferir("garantir_textos([f.texto for f in falas], config)" in ensaio
+         and "perfil = encontro.perfil_da_voz(config)" in ensaio,
+         "e sintetiza e assina a partir da MESMA escolha",
+         "desencontrar as duas guarda o audio de uma voz no endereco de outra")
+aquecer = ROTA[ROTA.index("async def aquecer("):ROTA.index("async def _tem_tabela")]
+conferir("encontro.escolha_de_voz(" in aquecer
+         and "garantir_textos(textos, escolha)" in aquecer,
+         "e o botao de sintetizar tudo usa a MESMA voz da tela",
+         "sintetizar na voz salva e dizer '18 prontos' passa por boa a voz errada")
+conferir('"voz": escolha["voz"]' in aquecer,
+         "a resposta diz QUAL voz foi sintetizada",
+         "um numero sem o nome da voz foi o que deixou o erro passar")
+conferir("voz," in TELA and 'body: JSON.stringify({ voz: cfg.voz })' in TELA,
+         "e a tela manda a voz escolhida nos dois botoes",
+         "sem isso o servidor nao tem como saber o que esta selecionado")
+
 #: A MESMA REGRA DE PAUSA DA SALA: silencio so depois de uma fala que TOCOU.
 conferir("const seguir = (honrarPausa: boolean) => {" in TELA
          and "const ms = honrarPausa ? fala.pausa_ms : 0;" in TELA,

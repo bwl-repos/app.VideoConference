@@ -223,8 +223,40 @@ ESTRAGOS = [
 
     ("o ensaio ganha um caminho proprio de sintese",
      ROTA,
-     "    contas = await voz_porta.garantir_textos([f.texto for f in falas])\n",
+     "    contas = await voz_porta.garantir_textos([f.texto for f in falas], config)\n",
      "    contas = {}\n"),
+
+    # O defeito que apareceu em producao: trocar a voz, sintetizar, ensaiar -- e
+    # ouvir a voz ANTERIOR, porque os textos vinham da tela e a voz do banco.
+    ("o ensaio volta a ler a voz do banco em vez da tela",
+     ROTA,
+     "    config = encontro.escolha_de_voz(\n"
+     "        corpo.voz.model_dump() if corpo.voz else None, await encontro.carregar())",
+     "    config = await encontro.carregar()"),
+
+    # E o perigoso: sintetizar com uma voz e GUARDAR no endereco de outra. O
+    # objeto errado fica no bucket, com a chave certa, para sempre.
+    ("a sintese e a assinatura passam a usar vozes diferentes",
+     ROTA,
+     "    contas = await voz_porta.garantir_textos([f.texto for f in falas], config)\n"
+     "    perfil = encontro.perfil_da_voz(config)",
+     "    contas = await voz_porta.garantir_textos([f.texto for f in falas])\n"
+     "    perfil = encontro.perfil_da_voz(config)"),
+
+    ("o botao de sintetizar tudo volta a usar a voz salva",
+     ROTA,
+     "    contas = await voz_porta.garantir_textos(textos, escolha)\n",
+     "    contas = await voz_porta.garantir_textos(textos)\n"),
+
+    ("a resposta do aquecimento esconde QUAL voz foi sintetizada",
+     ROTA,
+     '    return {"textos": len(textos), "voz": escolha["voz"], **contas}',
+     '    return {"textos": len(textos), **contas}'),
+
+    ("a tela para de mandar a voz escolhida no aquecimento",
+     TELA,
+     "        method: \"POST\", body: JSON.stringify({ voz: cfg.voz }),\n",
+     '        method: "POST",\n'),
 
     ("sem voz configurada o ensaio passa a recusar com erro",
      ROTA,
