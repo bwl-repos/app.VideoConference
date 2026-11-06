@@ -89,24 +89,31 @@ async def sintetizar(texto: str, pedido: dict | None = None) -> bytes:
     return r.content
 
 
-async def garantir_textos(textos: list[str]) -> dict[str, int]:
-    """Sintetiza o que falta destes textos, na voz CONFIGURADA.
+async def garantir_textos(textos: list[str], escolha: dict | None = None) -> dict[str, int]:
+    """Sintetiza o que falta destes textos, na voz pedida (ou na configurada).
 
     Separado de `preparar` porque há dois chamadores com origens diferentes: a
     criação da sala (que parte de um roteiro) e o painel admin, que acabou de
     trocar a voz e quer pagar a síntese AGORA — senão a conta cai na primeira
     sala criada depois, que é justamente quem não devia esperar.
 
-    O perfil da voz entra na CHAVE (ver `voz.chave`) e no pedido ao CoreService,
-    e os dois saem da mesma configuração: desencontrá-los gravaria o áudio da
-    voz nova no endereço da voz velha.
+    `escolha` é uma configuração com a chave `voz`, para o painel pedir a voz
+    que está NA TELA, ainda não salva. Sem ela vale a salva — que é o que a
+    criação de sala precisa, porque a sala toca a voz do encontro, não a de
+    quem está mexendo no painel.
+
+    O PERFIL E O PEDIDO SAEM DO MESMO LUGAR, e é a linha que sustenta tudo:
+    o perfil é o ENDEREÇO do mp3 e o pedido é o que o CoreService vai gerar.
+    Desencontrá-los grava o áudio de uma voz no endereço de outra — e aí o
+    erro não se conserta trocando a configuração de volta, porque o objeto
+    errado fica no bucket, com a chave certa, para sempre.
     """
     if not configurado():
         logger.info("[voz] VOZ_CORE_URL/VOZ_CORE_TOKEN ausentes: encontro sem audio")
         return {"desligado": 1}
     if not textos:
         return {"pedidos": 0, "prontos": 0, "falhas": 0, "ja_tinha": 0}
-    config = await encontro.carregar()
+    config = escolha or await encontro.carregar()
     pedido = encontro.pedido_de_voz(config)
     contas = await voz.garantir(
         textos, tem=tem,
